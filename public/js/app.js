@@ -3,15 +3,19 @@ import { parse, evalAst, VARS, colVar } from "./formula.js";
 import { evaluate, baseVars, moveStats, coverage, MON_N, ymOf, ymLabel, DEFAULT_SETTINGS } from "./stock.js";
 import { detectPlan, detectMonth, monthOfName, hasKodeHeader, taxFromHeader, parseSales, parseStock, parseWorkbook, readProductList } from "./reports.js";
 import { fmtRp, fmtN, esc, keyOf, taxLabel, today } from "./util.js";
+import { channelLabel, supplierChannels, waNumber, whatsappUrl, mailtoUrl, telUrl, defaultOrderQty, reorderMessage, reorderSubject } from "./contact.js";
 
 /* ---------- state ---------- */
 const S = {
-  items: {}, rules: [], files: [], hist: [], dem: {}, moves: [], settings: { ...DEFAULT_SETTINGS }, usage: { bytes: 0 },
+  items: {}, rules: [], suppliers: [], files: [], hist: [], dem: {}, moves: [], settings: { ...DEFAULT_SETTINGS }, usage: { bytes: 0 },
   derived: new Map(), alerts: [], colRules: [], dstats: new Map(), win: { PPN: [], NON: [] },
   sort: { k: "sku", d: 1 }, page: 0, per: 100, editKey: null, editRule: null, loaded: false,
 };
 const $ = (s) => document.querySelector(s);
 const nf = (n) => n.toLocaleString("id-ID");
+const plural = (n, w) => `${nf(n)} ${w}${n === 1 ? "" : "s"}`;
+const initial = (name) => (String(name).match(/[\p{L}\p{N}]/u) || ["?"])[0].toUpperCase();
+const supplierOf = (it) => (it.supplierId ? S.suppliers.find((x) => x.id === it.supplierId) : null);
 const ledgerChip = (tax) => `<span class="chip ${tax === "PPN" ? "ppn" : "non"}">${taxLabel(tax)}</span>`;
 
 function toast(msg) {
@@ -42,6 +46,7 @@ async function load() {
   S.moves = st.moves;
   S.settings = st.settings;
   S.usage = st.usage;
+  S.suppliers = st.suppliers;
   if (!S.loaded || !document.activeElement?.closest("#page-settings")) fillSettings();
   S.loaded = true;
   recompute();
@@ -71,6 +76,8 @@ function renderAll() {
   renderFiles();
   renderCoverage();
   renderDatalist();
+  renderSuppliers();
+  fillSupplierSelect();
   $("#ledgerCount").textContent = nf(Object.keys(S.items).length) + " items";
 }
 
@@ -106,7 +113,7 @@ function invRows() {
     if (fa === "any" && !d?.alerts.length) return false;
     if (fa === "crit" && d?.sev !== "crit") return false;
     if (fa === "zero" && (+it.qty || 0) > 0) return false;
-    if (q && !(it.sku.toLowerCase().includes(q) || String(it.name || "").toLowerCase().includes(q))) return false;
+    if (q && !(it.sku.toLowerCase().includes(q) || String(it.name || "").toLowerCase().includes(q) || (supplierOf(it)?.company || "").toLowerCase().includes(q))) return false;
     return true;
   });
   const { k, d } = S.sort;
@@ -114,6 +121,7 @@ function invRows() {
     if (k.startsWith("col:")) return S.derived.get(it.key)?.cols[k.slice(4)] ?? -Infinity;
     if (k === "value" || k === "price_incl") return S.derived.get(it.key)?.vars[k] ?? 0;
     if (k === "alerts") return S.derived.get(it.key)?.alerts.length || 0;
+    if (k === "supplier") return supplierOf(it)?.company || "";
     return it[k];
   };
   rows.sort((a, b) => {
@@ -126,7 +134,7 @@ function invRows() {
 function renderInv() {
   const cols = [
     ["sku", "SKU"], ["name", "Product name"], ["tax", "Ledger"], ["unit", "Unit"], ["qty", "Qty", "num"], ["price", "Price", "num"],
-    ["price_incl", "Incl. PPN", "num"], ["value", "Stock value", "num"], ["minStock", "Min", "num"],
+    ["price_incl", "Incl. PPN", "num"], ["value", "Stock value", "num"], ["minStock", "Min", "num"], ["supplier", "Supplier"],
     ...S.colRules.map((r) => ["col:" + r.id, r.name, "num"]), ["alerts", "Alerts"],
   ];
   $("#invTbl thead").innerHTML = "<tr>" + cols.map(([k, l, c]) =>
@@ -154,6 +162,7 @@ function renderInv() {
       <td class="num"><span class="qty ${d.sev}">${fmtN(+it.qty || 0)}</span></td><td class="num">${fmtRp(+it.price || 0)}</td>
       <td class="num">${it.tax === "PPN" ? fmtRp(d.vars.price_incl) : dash}</td><td class="num">${fmtRp(d.vars.value)}</td>
       <td class="num">${it.minStock ? fmtN(+it.minStock) : dash}</td>
+      <td class="name">${esc(supplierOf(it)?.company || "") || dash}</td>
       ${S.colRules.map((r) => {
         const v = d.cols[r.id];
         return `<td class="num">${v == null ? dash : Number.isNaN(v) ? '<span class="err">err</span>' : fmtN(v)}</td>`;
@@ -163,6 +172,28 @@ function renderInv() {
   $("#pager").innerHTML = `<span class="hint">${nf(S.page * S.per + 1)}–${nf(Math.min(rows.length, (S.page + 1) * S.per))} of ${nf(rows.length)}</span>
     <button class="btn small" data-pg="-1" ${S.page <= 0 ? "disabled" : ""}>Previous</button>
     <button class="btn small" data-pg="1" ${S.page >= pages - 1 ? "disabled" : ""}>Next</button>`;
+}
+
+/** What current stock is compared against: the reorder point, or min stock when there is no sales history yet. */
+function stockTarget(v) {
+  if (v.hist_months > 0 || !v.min_stock) return { label: "Reorder point", val: v.reorder_point };
+  return { label: "Min stock", val: v.min_stock };
+}
+function compareHtml(it, v, sev) {
+  const t = stockTarget(v);
+  const gap = Math.max(0, t.val - v.qty);
+  const u = `<small> ${esc(it.unit)}</small>`;
+  return `<div class="compare">
+    <div class="cmp now ${sev}"><span class="l">Current stock</span><span class="v">${fmtN(v.qty)}${u}</span></div>
+    <div class="cmp target"><span class="l">${t.label}</span><span class="v">${fmtN(t.val)}${u}</span></div>
+    <div class="cmp gap"><span class="l">${gap > 0 ? "Short by" : "Above by"}</span><span class="v">${fmtN(gap > 0 ? gap : v.qty - t.val)}${u}</span></div>
+  </div>`;
+}
+function supplierLine(it) {
+  const sp = supplierOf(it);
+  return sp
+    ? `<div class="supline">Supplier <strong>${esc(sp.company)}</strong>${sp.contact ? ` · ${esc(sp.contact)}` : ""}</div>`
+    : `<div class="supline"><span class="none">No supplier assigned</span></div>`;
 }
 
 function renderAlerts() {
@@ -181,14 +212,20 @@ function renderAlerts() {
         <div class="row"><span class="chip ${sev}">${sev === "crit" ? "Critical" : "Warning"}</span><span class="mono">${esc(it.sku)}</span>${ledgerChip(it.tax)}</div>
         <div class="nm">${esc(it.name)}</div>
         <div class="hint">${esc(r.name)} · ${v.hist_months ? v.hist_months + " months of history" : "no sales history"} · avg ${fmtN(v.avg_monthly_demand)} ${esc(it.unit)}/month</div>
+        ${supplierLine(it)}
       </div>
-      <div class="stockbox ${sev}">
-        <div class="sb-top"><span class="sb-l">Current stock</span><span class="sb-q">${fmtN(v.qty)}<small> ${esc(it.unit)}</small></span></div>
-        <div class="gauge" role="img" aria-label="Stock ${fmtN(v.qty)}, safety stock ${fmtN(v.safety_stock)}, reorder point ${fmtN(v.reorder_point)}, min stock ${fmtN(v.min_stock)}">
-          <div class="g-fill" style="width:${pc(v.qty)}"></div><i class="g-ss" style="left:${pc(v.safety_stock)}"></i><i class="g-rop" style="left:${pc(v.reorder_point)}"></i>${v.min_stock ? `<i class="g-min" style="left:${pc(v.min_stock)}"></i>` : ""}</div>
-        <div class="sb-legend"><span><i class="k-ss"></i>Safety ${fmtN(v.safety_stock)}</span><span><i class="k-rop"></i>Reorder ${fmtN(v.reorder_point)}</span>${v.min_stock ? `<span><i class="k-min"></i>Min ${fmtN(v.min_stock)}</span>` : ""}<span>Order <strong>${fmtN(v.suggested_order)}</strong></span></div>
+      <div class="side">
+        ${compareHtml(it, v, sev)}
+        <div class="stockbox ${sev}">
+          <div class="gauge" role="img" aria-label="Stock ${fmtN(v.qty)}, safety stock ${fmtN(v.safety_stock)}, reorder point ${fmtN(v.reorder_point)}, min stock ${fmtN(v.min_stock)}">
+            <div class="g-fill" style="width:${pc(v.qty)}"></div><i class="g-ss" style="left:${pc(v.safety_stock)}"></i><i class="g-rop" style="left:${pc(v.reorder_point)}"></i>${v.min_stock ? `<i class="g-min" style="left:${pc(v.min_stock)}"></i>` : ""}</div>
+          <div class="sb-legend"><span><i class="k-ss"></i>Safety ${fmtN(v.safety_stock)}</span><span><i class="k-rop"></i>Reorder ${fmtN(v.reorder_point)}</span>${v.min_stock ? `<span><i class="k-min"></i>Min ${fmtN(v.min_stock)}</span>` : ""}<span>Suggested order <strong>${fmtN(defaultOrderQty(v))}</strong></span></div>
+        </div>
       </div>
-      <button class="btn small" data-open="${esc(it.key)}">Open</button>
+      <div class="acts">
+        <button class="btn small primary" data-reorder="${esc(it.key)}"><svg viewBox="0 0 24 24"><path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.6L21 8H6"/><circle cx="10" cy="20" r="1"/><circle cx="17" cy="20" r="1"/></svg>Reorder</button>
+        <button class="btn small" data-open="${esc(it.key)}">Open</button>
+      </div>
     </div>`;
   }).join("") + (S.alerts.length > 500 ? `<div class="alert-item hint">Showing the first 500 of ${nf(S.alerts.length)}. Use the Inventory filter “With alerts” to see all.</div>` : "");
 }
@@ -332,6 +369,8 @@ function openItem(key) {
   $("#iQty").value = it.qty;
   $("#iPrice").value = it.price;
   $("#iMin").value = it.minStock || "";
+  fillSupplierSelect();
+  $("#iSupplier").value = it.supplierId || "";
   $("#iErr").textContent = "";
   $("#iDel").hidden = !key;
   $("#iDelRow").hidden = true;
@@ -375,7 +414,7 @@ $("#iDelYes").onclick = async () => {
 };
 $("#itemForm").addEventListener("submit", async (ev) => {
   ev.preventDefault();
-  const body = { sku: $("#iSku").value.trim(), tax: $("#iTax").value, name: $("#iName").value.trim(), unit: $("#iUnit").value, qty: $("#iQty").value, price: $("#iPrice").value, minStock: $("#iMin").value };
+  const body = { sku: $("#iSku").value.trim(), tax: $("#iTax").value, name: $("#iName").value.trim(), unit: $("#iUnit").value, qty: $("#iQty").value, price: $("#iPrice").value, minStock: $("#iMin").value, supplierId: $("#iSupplier").value };
   if (!body.sku || !body.name) { $("#iErr").textContent = "SKU and product name are required."; return; }
   $("#iSave").disabled = true;
   try {
@@ -413,6 +452,8 @@ $("#pager").addEventListener("click", (e) => {
   window.scrollTo({ top: 0 });
 });
 $("#alertList").addEventListener("click", (e) => {
+  const ro = e.target.closest("[data-reorder]");
+  if (ro) return openReorder(ro.dataset.reorder);
   const b = e.target.closest("[data-open]");
   if (b) openItem(b.dataset.open);
 });
@@ -766,14 +807,14 @@ function exportXlsx(rows, filename) {
 $("#expAll").onclick = () => exportXlsx(Object.values(S.items).map((it) => {
   const d = S.derived.get(it.key);
   const o = { SKU: it.sku, Name: it.name, Ledger: taxLabel(it.tax), Unit: it.unit, Qty: +it.qty || 0, Price: +it.price || 0,
-    "Price incl PPN": it.tax === "PPN" ? Math.round(d.vars.price_incl) : "", "Stock value (excl PPN)": Math.round(d.vars.value), "Min stock": +it.minStock || 0 };
+    "Price incl PPN": it.tax === "PPN" ? Math.round(d.vars.price_incl) : "", "Stock value (excl PPN)": Math.round(d.vars.value), "Min stock": +it.minStock || 0, Supplier: supplierOf(it)?.company || "" };
   for (const r of S.colRules) o[r.name] = d.cols[r.id];
   o.Alerts = d.alerts.map((r) => r.name).join("; ");
   return o;
 }), `stock-ledger-${today()}.xlsx`);
 const exportAlerts = () => exportXlsx(S.alerts.map(({ it, r }) => {
   const v = S.derived.get(it.key).vars;
-  return { Severity: r.severity === "crit" ? "Critical" : "Warning", Alert: r.name, SKU: it.sku, Name: it.name, Ledger: taxLabel(it.tax), Unit: it.unit,
+  return { Severity: r.severity === "crit" ? "Critical" : "Warning", Alert: r.name, SKU: it.sku, Name: it.name, Ledger: taxLabel(it.tax), Unit: it.unit, Supplier: supplierOf(it)?.company || "",
     "Current stock": v.qty, "Safety stock": v.safety_stock, "Reorder point": v.reorder_point, "Suggested order": v.suggested_order,
     "Days of cover": v.days_cover >= 9999 ? "no sales" : Math.round(v.days_cover) };
 }), `stock-alerts-${today()}.xlsx`);
@@ -782,8 +823,8 @@ $("#expAlerts2").onclick = exportAlerts;
 
 $("#clearDemo").onclick = async () => {
   const b = $("#clearDemo");
-  const n = Object.values(S.items).filter((it) => it.sku.startsWith("DEMO-")).length;
-  if (!n) { toast("No example items left."); return; }
+  const n = Object.values(S.items).filter((it) => it.sku.startsWith("DEMO-")).length + S.suppliers.filter((x) => x.company.startsWith("[Demo]")).length;
+  if (!n) { toast("No examples left."); return; }
   if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = `Confirm: remove ${n}`; return; }
   try {
     await api.removeDemo();
@@ -793,6 +834,184 @@ $("#clearDemo").onclick = async () => {
   b.dataset.confirm = "";
   b.textContent = "Remove examples";
 };
+
+/* ---------- suppliers ---------- */
+function fillSupplierSelect() {
+  const sel = $("#iSupplier");
+  const cur = sel.value;
+  sel.innerHTML = `<option value="">— No supplier —</option>` + S.suppliers.map((x) => `<option value="${esc(x.id)}">${esc(x.company)}</option>`).join("");
+  sel.value = S.suppliers.some((x) => x.id === cur) ? cur : "";
+}
+function contactHref(sp, ch) {
+  if (ch === "whatsapp") return "https://wa.me/" + waNumber(sp.whatsapp);
+  if (ch === "email") return "mailto:" + sp.email;
+  if (ch === "phone") return telUrl(sp.phone);
+  return null; // WeChat has no web link; the ID is copied instead
+}
+function contactRows(sp) {
+  return supplierChannels(sp).map((ch) => {
+    const href = contactHref(sp, ch);
+    const inner = `<span class="ch">${channelLabel(ch)}</span><span class="val">${esc(sp[ch])}</span>${sp.preferred === ch ? '<span class="chip col pref">Preferred</span>' : ""}`;
+    return href
+      ? `<a class="contact" href="${esc(href)}" ${ch === "whatsapp" ? 'target="_blank" rel="noopener"' : ""}>${inner}</a>`
+      : `<button type="button" class="contact" data-copy="${esc(sp[ch])}" title="Copy WeChat ID" style="font:inherit;text-align:left;cursor:copy">${inner}</button>`;
+  }).join("");
+}
+function renderSuppliers() {
+  const q = $("#supQ").value.trim().toLowerCase();
+  const counts = new Map();
+  for (const it of Object.values(S.items)) if (it.supplierId) counts.set(it.supplierId, (counts.get(it.supplierId) || 0) + 1);
+  const unassigned = Object.values(S.items).filter((it) => !it.supplierId).length;
+  $("#supSummary").textContent = `${plural(S.suppliers.length, "supplier")} · ${plural(unassigned, "product")} without a supplier`;
+  const rows = S.suppliers.filter((x) => !q || [x.company, x.contact, x.whatsapp, x.wechat, x.email, x.phone].join(" ").toLowerCase().includes(q));
+  const el = $("#supList");
+  if (!S.suppliers.length) {
+    el.innerHTML = `<div class="card" style="grid-column:1/-1"><div class="empty"><strong>No suppliers yet</strong><span>Add your suppliers, then pick one on each product so “Reorder” knows who to contact.</span></div></div>`;
+    return;
+  }
+  if (!rows.length) { el.innerHTML = `<div class="card" style="grid-column:1/-1"><div class="empty">No suppliers match.</div></div>`; return; }
+  el.innerHTML = rows.map((x) => `<div class="sup-card" id="sup-${esc(x.id)}">
+    <div class="sup-head"><span class="avatar">${esc(initial(x.company))}</span>
+      <div class="t"><h3>${esc(x.company)}</h3><div class="pic">${x.contact ? "PIC: " + esc(x.contact) : "No person in charge"}</div></div>
+      <button class="btn small" data-sedit="${esc(x.id)}">Edit</button></div>
+    <div class="contacts">${contactRows(x)}</div>
+    ${x.notes ? `<div class="hint">${esc(x.notes)}</div>` : ""}
+    <div class="sup-foot"><span>${plural(counts.get(x.id) || 0, "product")}</span>${counts.get(x.id) ? `<span class="spacer"></span><button class="btn small" data-sitems="${esc(x.company)}">View products</button>` : ""}</div>
+  </div>`).join("");
+}
+$("#supQ").addEventListener("input", renderSuppliers);
+async function copyText(text, what) {
+  try { await navigator.clipboard.writeText(text); toast(`${what} copied`); }
+  catch { toast(`Could not copy. Select the text and copy it manually.`); }
+}
+document.addEventListener("click", (e) => {
+  const c = e.target.closest("[data-copy]");
+  if (c) copyText(c.dataset.copy, "WeChat ID");
+});
+$("#supList").addEventListener("click", (e) => {
+  const ed = e.target.closest("[data-sedit]");
+  if (ed) return openSupplier(ed.dataset.sedit);
+  const v = e.target.closest("[data-sitems]");
+  if (v) { $("#q").value = v.dataset.sitems; S.page = 0; showTab("inventory"); renderInv(); }
+});
+
+let supEdit = null, supReturn = null;
+function openSupplier(id, onSaved = null) {
+  supEdit = id;
+  supReturn = onSaved;
+  const x = id ? S.suppliers.find((y) => y.id === id) : {};
+  $("#supDlgTitle").textContent = id ? "Edit supplier" : "Add supplier";
+  for (const [f, el] of [["company", "#sCompany"], ["contact", "#sContact"], ["whatsapp", "#sWhatsapp"], ["wechat", "#sWechat"], ["email", "#sEmail"], ["phone", "#sPhone"], ["preferred", "#sPreferred"], ["notes", "#sNotes"]]) $(el).value = x[f] || "";
+  $("#supErr").textContent = "";
+  $("#supDel").hidden = !id;
+  $("#supDelRow").hidden = true;
+  $("#supDlg").showModal();
+}
+$("#supAdd").onclick = () => openSupplier(null);
+$("#supCancel").onclick = $("#supClose").onclick = () => $("#supDlg").close();
+$("#supDel").onclick = () => {
+  const n = Object.values(S.items).filter((it) => it.supplierId === supEdit).length;
+  $("#supDelText").textContent = n ? `Delete this supplier? ${n} product(s) will have no supplier.` : "Delete this supplier?";
+  $("#supDelRow").hidden = false;
+};
+$("#supDelNo").onclick = () => ($("#supDelRow").hidden = true);
+$("#supDelYes").onclick = async () => {
+  try { await api.deleteSupplier(supEdit); $("#supDlg").close(); toast("Supplier deleted"); scheduleReload(); }
+  catch (e) { $("#supErr").textContent = e.message; }
+};
+$("#supForm").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const body = { company: $("#sCompany").value, contact: $("#sContact").value, whatsapp: $("#sWhatsapp").value, wechat: $("#sWechat").value, email: $("#sEmail").value, phone: $("#sPhone").value, preferred: $("#sPreferred").value, notes: $("#sNotes").value };
+  $("#supSave").disabled = true;
+  try {
+    const r = supEdit ? (await api.updateSupplier(supEdit, body), { id: supEdit }) : await api.createSupplier(body);
+    $("#supDlg").close();
+    toast("Supplier saved");
+    await load();
+    if (supReturn) supReturn(r.id);
+  } catch (e) {
+    $("#supErr").textContent = e.message;
+  } finally {
+    $("#supSave").disabled = false;
+  }
+});
+
+/* ---------- reorder ---------- */
+let roKey = null, roMsgEdited = false;
+function openReorder(key) {
+  roKey = key;
+  roMsgEdited = false;
+  const it = S.items[key];
+  if (!it) return;
+  const d = S.derived.get(key);
+  const sev = d?.sev || "";
+  $("#roTitle").textContent = `Reorder ${it.sku}`;
+  $("#roSub").textContent = it.name + " · " + taxLabel(it.tax);
+  $("#roCompare").innerHTML = compareHtml(it, d.vars, sev);
+  $("#roQty").value = defaultOrderQty(d.vars) || "";
+  renderReorderSupplier();
+  $("#roDlg").showModal();
+}
+function renderReorderSupplier() {
+  const it = S.items[roKey];
+  const sp = supplierOf(it);
+  const box = $("#roSupplier");
+  $("#roMsgWrap").hidden = !sp;
+  if (!sp) {
+    box.innerHTML = `<div class="ro-sup"><strong>No supplier assigned to ${esc(it.sku)}</strong>
+      ${S.suppliers.length ? `<div class="field"><label for="roPick">Assign a supplier</label><select id="roPick"><option value="">Choose…</option>${S.suppliers.map((x) => `<option value="${esc(x.id)}">${esc(x.company)}</option>`).join("")}</select></div>` : `<span class="hint">You have no suppliers yet.</span>`}
+      <div><button type="button" class="btn small" id="roNewSup">Add a new supplier</button></div></div>`;
+    $("#roActions").innerHTML = "";
+    $("#roNote").textContent = "";
+    $("#roPick")?.addEventListener("change", (e) => e.target.value && assignReorderSupplier(e.target.value));
+    $("#roNewSup").onclick = () => { $("#roDlg").close(); openSupplier(null, (id) => assignReorderSupplier(id, true)); };
+    return;
+  }
+  box.innerHTML = `<div class="ro-sup">
+    <div class="sup-head"><span class="avatar">${esc(initial(sp.company))}</span>
+      <div class="t"><h3>${esc(sp.company)}</h3><div class="pic">${sp.contact ? "PIC: " + esc(sp.contact) : "No person in charge"}</div></div>
+      <button type="button" class="btn small" id="roViewSup">View supplier</button></div>
+    <div class="contacts">${contactRows(sp)}</div></div>`;
+  $("#roViewSup").onclick = () => {
+    $("#roDlg").close();
+    showTab("suppliers");
+    $("#supQ").value = "";
+    renderSuppliers();
+    const card = document.getElementById("sup-" + sp.id);
+    card?.scrollIntoView({ behavior: "smooth", block: "center" });
+    card?.classList.add("flash");
+    setTimeout(() => card?.classList.remove("flash"), 1800);
+  };
+  if (!roMsgEdited) $("#roMsg").value = reorderMessage({ supplier: sp, item: it, qty: +$("#roQty").value || 0 });
+  $("#roActions").innerHTML = supplierChannels(sp).map((ch) => {
+    const label = { whatsapp: "Send on WhatsApp", wechat: "Copy for WeChat", email: "Send email", phone: "Call" }[ch];
+    return `<button type="button" class="btn ch-${ch}${sp.preferred === ch ? " pref" : ""}" data-ch="${ch}">${label}</button>`;
+  }).join("");
+  $("#roNote").textContent = supplierChannels(sp).includes("wechat") ? "WeChat can't be opened with a message from a browser: the message is copied, then paste it in WeChat." : "";
+}
+async function assignReorderSupplier(id, reopen = false) {
+  try {
+    await api.setItemSupplier(roKey, id);
+    await load();
+    toast("Supplier assigned");
+    if (reopen) openReorder(roKey);
+    else renderReorderSupplier();
+  } catch (e) { handleErr(e); }
+}
+$("#roQty").addEventListener("input", () => { if (!roMsgEdited) renderReorderSupplier(); });
+$("#roMsg").addEventListener("input", () => (roMsgEdited = true));
+$("#roClose").onclick = () => $("#roDlg").close();
+$("#roActions").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-ch]");
+  if (!b) return;
+  const it = S.items[roKey], sp = supplierOf(it), msg = $("#roMsg").value;
+  if (!(+$("#roQty").value > 0)) { toast("Enter an order quantity first."); return; }
+  const ch = b.dataset.ch;
+  if (ch === "whatsapp") window.open(whatsappUrl(sp.whatsapp, msg), "_blank", "noopener");
+  else if (ch === "email") location.href = mailtoUrl(sp.email, reorderSubject(it), msg);
+  else if (ch === "phone") location.href = telUrl(sp.phone);
+  else if (ch === "wechat") copyText(msg, "Order message").then(() => { $("#roNote").textContent = `Message copied. Open WeChat and send it to ${sp.wechat}.`; });
+});
 
 /* ---------- boot ---------- */
 renderAll();

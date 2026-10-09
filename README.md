@@ -10,7 +10,9 @@ Spare-part inventory system with separate **PPN** and **Non-PPN** ledgers. It is
 |---|---|
 | **Inventory** | Products by SKU and ledger, unit (PCS / SET), qty, price, min stock. Search, filters, sortable columns, paging, stock-value KPIs. |
 | **Stock moves** | Book IN / OUT / ADJ. Stock is updated on the server in one transaction, so two people booking at once can't overwrite each other. OUT below zero is refused. |
-| **Alerts** | Live list driven by alert formulas, with a gauge showing stock vs safety stock, reorder point and min stock. Export to Excel. |
+| **Alerts** | Live list driven by alert formulas. Each alert shows **current stock vs reorder point** (or min stock when there is no sales history yet) and how far short it is, plus a gauge and the suggested order. Export to Excel. |
+| **Reorder** | One click from an alert opens the SKU's supplier with a pre-filled order message: WhatsApp opens with the message, email opens your mail app, telephone dials, and for WeChat the message is copied to paste (browsers can't pre-fill WeChat). No supplier yet? Assign or add one right there. |
+| **Suppliers** | Company name, person in charge, WhatsApp, WeChat ID, email, telephone, preferred channel and notes. Assign a supplier to each product; search inventory by supplier. |
 | **Formulas** | Small expression language (no `eval`) for alert rules and computed columns, with live "would trigger on N items" testing. |
 | **Files & reports** | Upload any file (≤ 15 MB). Hashiru sales reports, stock reports and yearly workbooks are parsed, reconciled to the report totals, and feed demand history. A coverage grid shows which months are loaded. |
 | **Safety stock** | `Z × σ(monthly sales) × √((lead time + check interval) ÷ 30.4)`, plus reorder point, order-up-to and suggested order. Months blocked by a stock-out are left out. |
@@ -26,7 +28,7 @@ Requires **Node.js 22.5 or newer** (uses the built-in `node:sqlite`, so there is
 ```bash
 npm install
 npm start            # http://127.0.0.1:3000
-npm run seed:demo    # optional: 8 DEMO- products to try things out
+npm run seed:demo    # optional: 8 DEMO- products and 2 [Demo] suppliers to try things out
 npm test             # unit + API tests
 ```
 
@@ -65,4 +67,6 @@ legacy/        the original single-file artifact
 
 - **No login yet.** Anyone who can reach the server can read and change everything. That's why it listens on localhost only by default. Add authentication (and HTTPS via a reverse proxy) before opening it to a network.
 - **SheetJS** is installed from SheetJS's own CDN (0.20.3), because the npm registry only has 0.18.5, which has known advisories. `npm install` therefore needs access to `cdn.sheetjs.com`.
+- **Reorder doesn't record an order.** It only contacts the supplier, so the app can't tell you an order is already on its way; book the goods as a stock move (IN) when they arrive. Purchase orders are the fix (see below).
+- **Phone numbers** starting with 0 are assumed Indonesian (+62) for WhatsApp links; enter foreign numbers with + and the country code.
 - **It is an inventory module, not yet a full ERP.** Purchasing (POs, suppliers), sales orders/invoicing, multi-warehouse, users/roles and an audit log are the natural next modules.

@@ -214,6 +214,53 @@ tr.sev-warn td:first-child::before { background: var(--warn); }
 .pv { max-height: 60vh; overflow: auto; border: 1px solid var(--line); border-radius: var(--r); }
 .pv td { font-size: 12px; padding: 6px 10px; }
 
+/* ---------- suppliers ---------- */
+.sup-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: 16px; }
+.sup-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--shadow); padding: 18px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.sup-card.flash { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+.sup-head { display: flex; gap: 12px; align-items: flex-start; }
+.avatar { width: 40px; height: 40px; border-radius: 12px; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; font-weight: 700; font-size: 15px; flex: none; }
+.sup-head .t { flex: 1; min-width: 0; }
+.sup-head h3 { font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.sup-head .pic { font-size: 13px; color: var(--muted); }
+.contacts { display: flex; flex-direction: column; gap: 6px; }
+.contact { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--fg-2); text-decoration: none; padding: 6px 10px; border-radius: 9px; background: var(--subtle); border: 1px solid var(--line); min-width: 0; }
+a.contact:hover { border-color: var(--line-strong); background: var(--hover); }
+.contact .ch { font-size: 11px; font-weight: 600; color: var(--muted); width: 72px; flex: none; }
+.contact .val { overflow-wrap: anywhere; min-width: 0; }
+.contact .pref { margin-left: auto; }
+.sup-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; border-top: 1px solid var(--line); padding-top: 12px; font-size: 12px; color: var(--muted); }
+.field-group { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid var(--line); border-radius: var(--r); background: var(--subtle); }
+.group-l { font-size: 12px; font-weight: 600; color: var(--fg-2); }
+
+/* ---------- stock vs reorder point ---------- */
+.compare { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.cmp { padding: 10px 12px; border-radius: var(--r); background: var(--subtle); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cmp .l { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.cmp .v { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.cmp .v small { font-size: 12px; font-weight: 500; color: var(--muted); }
+.cmp.now.crit { background: var(--crit-soft); border-color: #f8dede; }
+.cmp.now.crit .v { color: var(--crit); }
+.cmp.now.warn { background: var(--warn-soft); border-color: #f6ead0; }
+.cmp.now.warn .v { color: var(--warn); }
+.cmp.target .v { color: var(--accent); }
+.cmp.gap .v { color: var(--fg); }
+.alert-item .side { flex: 0 1 420px; min-width: 260px; display: flex; flex-direction: column; gap: 10px; }
+.alert-item .acts { display: flex; flex-direction: column; gap: 6px; }
+.alert-item .side .stockbox { flex: none; min-width: 0; }
+.supline { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.supline strong { color: var(--fg-2); font-weight: 600; }
+.supline .none { color: var(--warn); }
+
+/* ---------- reorder dialog ---------- */
+.ro-sup { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid var(--line); border-radius: var(--r); background: var(--subtle); }
+.btn.ch-whatsapp { background: #e9f8ef; border-color: #cdeedb; color: #1f8a4c; }
+.btn.ch-wechat { background: #eef9e9; border-color: #d4efc8; color: #2f8a1d; }
+.btn.ch-email { background: var(--accent-soft); border-color: #dfe3fd; color: var(--accent); }
+.btn.ch-phone { background: var(--subtle); color: var(--fg-2); }
+.btn.ch-whatsapp:hover, .btn.ch-wechat:hover, .btn.ch-email:hover, .btn.ch-phone:hover { filter: brightness(0.97); }
+.btn.pref { box-shadow: 0 0 0 2px currentColor inset; }
+
 /* ---------- dialogs & toast ---------- */
 dialog { border: 0; border-radius: 20px; background: var(--surface); color: var(--fg); padding: 0; width: min(580px, calc(100vw - 32px)); max-height: calc(100vh - 48px); box-shadow: var(--shadow-lg); }
 dialog.wide { width: min(980px, calc(100vw - 32px)); }
@@ -247,6 +294,9 @@ dialog::backdrop { background: rgba(30, 36, 51, 0.28); backdrop-filter: blur(3px
   .card { padding: 16px; }
   .field.span2 { grid-column: 1 / -1; }
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .alert-item .side { min-width: 0; flex-basis: 100%; }
+  .alert-item .acts { flex-direction: row; }
+  .cmp .v { font-size: 17px; }
   .kpi { padding: 14px; }
   .kpi .v { font-size: 18px; }
 }

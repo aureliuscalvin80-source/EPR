@@ -53,8 +53,31 @@ function ruleFields(b) {
   return r;
 }
 
+const CHANNELS = ["whatsapp", "wechat", "email", "phone"];
+function supplierFields(b) {
+  const f = {
+    company: str(b.company, 200),
+    contact: str(b.contact, 200),
+    wechat: str(b.wechat, 100),
+    whatsapp: str(b.whatsapp, 40),
+    email: str(b.email, 200),
+    phone: str(b.phone, 40),
+    preferred: oneOf(b.preferred ?? "", ["", ...CHANNELS], "Preferred channel"),
+    notes: str(b.notes, 2000),
+  };
+  if (!f.company) throw new HttpError(400, "Company name is required.");
+  if (!CHANNELS.some((c) => f[c])) throw new HttpError(400, "Add at least one way to contact this supplier.");
+  if (f.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email)) throw new HttpError(400, "That email address doesn't look right.");
+  for (const c of ["whatsapp", "phone"]) {
+    if (f[c] && !/^\+?[\d\s().-]{6,}$/.test(f[c])) throw new HttpError(400, `${c === "phone" ? "Telephone" : "WhatsApp"} number can only contain digits, spaces, +, -, ( and ).`);
+  }
+  if (f.preferred && !f[f.preferred]) throw new HttpError(400, "The preferred channel has no contact details filled in.");
+  return f;
+}
+
 // ---------- row → API shape ----------
-const itemOut = (r) => ({ key: r.key, sku: r.sku, tax: r.tax, name: r.name, unit: r.unit, qty: r.qty, price: r.price, minStock: r.min_stock, updatedAt: r.updated_at });
+const itemOut = (r) => ({ key: r.key, sku: r.sku, tax: r.tax, name: r.name, unit: r.unit, qty: r.qty, price: r.price, minStock: r.min_stock, supplierId: r.supplier_id || "", updatedAt: r.updated_at });
+const supplierOut = (r) => ({ id: r.id, company: r.company, contact: r.contact, wechat: r.wechat, whatsapp: r.whatsapp, email: r.email, phone: r.phone, preferred: r.preferred, notes: r.notes });
 const ruleOut = (r) => ({ id: r.id, name: r.name, kind: r.kind, scope: r.scope, severity: r.severity, expr: r.expr, enabled: !!r.enabled, createdAt: r.created_at });
 const histOut = (r) => ({ id: r.id, fileId: r.file_id, file: r.file, kind: r.kind, tax: r.tax, ym: r.ym, check: r.status, msg: r.msg, lines: r.lines, skus: r.skus, qty: r.qty, rp: r.rp, otherUnits: r.other_units });
 
@@ -113,6 +136,7 @@ export function createApp({ dataDir }) {
       items,
       dem,
       rules: db.prepare("SELECT * FROM rules ORDER BY created_at").all().map(ruleOut),
+      suppliers: db.prepare("SELECT * FROM suppliers ORDER BY company COLLATE NOCASE").all().map(supplierOut),
       files,
       history: db.prepare("SELECT * FROM history").all().map(histOut),
       moves: db.prepare("SELECT * FROM moves WHERE t >= ? ORDER BY t DESC").all(Date.now() - MOVE_DAYS * 864e5).map((m) => ({ ...m })),
@@ -127,6 +151,11 @@ export function createApp({ dataDir }) {
     if (!r) throw new HttpError(404, "This product no longer exists.");
     return r;
   };
+  const supplierIdIn = (v) => {
+    const id = str(v, 100);
+    if (id && !db.prepare("SELECT 1 FROM suppliers WHERE id = ?").get(id)) throw new HttpError(400, "That supplier no longer exists.");
+    return id || null;
+  };
   const addMove = (it, type, qty, note, t = Date.now()) =>
     db.prepare("INSERT INTO moves (t, key, sku, tax, type, qty, note) VALUES (?, ?, ?, ?, ?, ?, ?)").run(t, it.key, it.sku, it.tax, type, qty, note);
 
@@ -140,18 +169,19 @@ export function createApp({ dataDir }) {
     const key = keyOf(tax, sku);
     if (db.prepare("SELECT 1 FROM items WHERE key = ?").get(key))
       throw new HttpError(409, `${sku} already exists in the ${tax === "PPN" ? "PPN" : "Non-PPN"} ledger. Edit that one instead.`);
-    db.prepare("INSERT INTO items (key, sku, tax, name, unit, qty, price, min_stock, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(key, sku, tax, f.name, f.unit, f.qty, f.price, f.minStock, Date.now());
+    db.prepare("INSERT INTO items (key, sku, tax, name, unit, qty, price, min_stock, supplier_id, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(key, sku, tax, f.name, f.unit, f.qty, f.price, f.minStock, supplierIdIn(req.body.supplierId), Date.now());
     return { key };
   }));
 
   app.put("/api/items/:key", json, write((req) => {
     const f = itemFields(req.body);
     if (!f.name) throw new HttpError(400, "Product name is required.");
+    const supplierId = supplierIdIn(req.body.supplierId);
     tx(db, () => {
       const prev = getItem(req.params.key);
-      db.prepare("UPDATE items SET name = ?, unit = ?, qty = ?, price = ?, min_stock = ?, updated_at = ? WHERE key = ?")
-        .run(f.name, f.unit, f.qty, f.price, f.minStock, Date.now(), prev.key);
+      db.prepare("UPDATE items SET name = ?, unit = ?, qty = ?, price = ?, min_stock = ?, supplier_id = ?, updated_at = ? WHERE key = ?")
+        .run(f.name, f.unit, f.qty, f.price, f.minStock, supplierId, Date.now(), prev.key);
       if (prev.qty !== f.qty) addMove(prev, "ADJ", f.qty - prev.qty, "Edited in product form");
     });
   }));
@@ -185,6 +215,9 @@ export function createApp({ dataDir }) {
     return tx(db, () => {
       const removed = db.prepare("DELETE FROM items WHERE sku LIKE 'DEMO-%'").run().changes;
       db.prepare("DELETE FROM moves WHERE sku LIKE 'DEMO-%'").run();
+      const demoSuppliers = "SELECT id FROM suppliers WHERE company LIKE '[Demo]%'";
+      db.prepare(`UPDATE items SET supplier_id = NULL WHERE supplier_id IN (${demoSuppliers})`).run();
+      db.prepare(`DELETE FROM suppliers WHERE id IN (${demoSuppliers})`).run();
       return { removed };
     });
   }));
@@ -201,6 +234,36 @@ export function createApp({ dataDir }) {
       db.prepare("UPDATE items SET qty = ?, updated_at = ? WHERE key = ?").run(next, Date.now(), it.key);
       addMove(it, type, next - it.qty, str(req.body.note));
       return { sku: it.sku, unit: it.unit, from: it.qty, to: next };
+    });
+  }));
+
+  // Assign (or clear) the supplier of one product without touching anything else.
+  app.put("/api/items/:key/supplier", json, write((req) => {
+    const supplierId = supplierIdIn(req.body.supplierId);
+    if (!db.prepare("UPDATE items SET supplier_id = ?, updated_at = ? WHERE key = ?").run(supplierId, Date.now(), req.params.key).changes)
+      throw new HttpError(404, "This product no longer exists.");
+  }));
+
+  // ---------- suppliers ----------
+  app.post("/api/suppliers", json, write((req) => {
+    const f = supplierFields(req.body);
+    const id = randomUUID();
+    const now = Date.now();
+    db.prepare("INSERT INTO suppliers (id, company, contact, wechat, whatsapp, email, phone, preferred, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(id, f.company, f.contact, f.wechat, f.whatsapp, f.email, f.phone, f.preferred, f.notes, now, now);
+    return { id };
+  }));
+  app.put("/api/suppliers/:id", json, write((req) => {
+    const f = supplierFields(req.body);
+    const res = db.prepare("UPDATE suppliers SET company = ?, contact = ?, wechat = ?, whatsapp = ?, email = ?, phone = ?, preferred = ?, notes = ?, updated_at = ? WHERE id = ?")
+      .run(f.company, f.contact, f.wechat, f.whatsapp, f.email, f.phone, f.preferred, f.notes, Date.now(), req.params.id);
+    if (!res.changes) throw new HttpError(404, "This supplier no longer exists.");
+  }));
+  app.delete("/api/suppliers/:id", write((req) => {
+    return tx(db, () => {
+      const unassigned = db.prepare("UPDATE items SET supplier_id = NULL WHERE supplier_id = ?").run(req.params.id).changes;
+      if (!db.prepare("DELETE FROM suppliers WHERE id = ?").run(req.params.id).changes) throw new HttpError(404, "This supplier no longer exists.");
+      return { unassigned };
     });
   }));
 

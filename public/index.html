@@ -24,6 +24,7 @@
     <button class="nav-item" role="tab" data-tab="inventory" aria-selected="true"><svg viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg><span>Inventory</span></button>
     <button class="nav-item" role="tab" data-tab="moves" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M7 20V4M3 8l4-4 4 4M17 4v16M13 16l4 4 4-4"/></svg><span>Stock moves</span></button>
     <button class="nav-item" role="tab" data-tab="alerts" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span>Alerts</span><span class="count zero" id="alertBadge">0</span></button>
+    <button class="nav-item" role="tab" data-tab="suppliers" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M3 21V8l6-4v4l6-4v4l6-4v17z"/><path d="M7 17h2M11 17h2M15 17h2"/></svg><span>Suppliers</span></button>
     <button class="nav-item" role="tab" data-tab="formulas" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M18 7V4H6l6 8-6 8h12v-3"/></svg><span>Formulas</span></button>
     <button class="nav-item" role="tab" data-tab="files" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg><span>Files &amp; reports</span></button>
     <button class="nav-item" role="tab" data-tab="settings" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg><span>Import &amp; settings</span></button>
@@ -42,7 +43,7 @@
   <div class="kpis" id="kpis"></div>
   <div class="card">
     <div class="toolbar">
-      <label class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="search" placeholder="Search SKU or product name" aria-label="Search"></label>
+      <label class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="search" placeholder="Search SKU, product or supplier" aria-label="Search"></label>
       <select id="fTax" aria-label="Ledger"><option value="">All ledgers</option><option value="PPN">PPN only</option><option value="NON">Non-PPN only</option></select>
       <select id="fUnit" aria-label="Unit"><option value="">All units</option><option value="PCS">PCS</option><option value="SET">SET</option></select>
       <select id="fAlert" aria-label="Alert filter"><option value="">All items</option><option value="any">With alerts</option><option value="crit">Critical only</option><option value="zero">Out of stock</option></select>
@@ -77,6 +78,19 @@
   <header class="page-head"><div><h1>Alerts</h1><p class="sub">Re-evaluated live whenever stock, prices, reports or formulas change.</p></div>
     <button class="btn" id="expAlerts2"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Export to Excel</button></header>
   <div class="card flush" id="alertList"></div>
+</section>
+
+<!-- SUPPLIERS -->
+<section class="page" id="page-suppliers" hidden>
+  <header class="page-head">
+    <div><h1>Suppliers</h1><p class="sub">Who you buy from and how to reach them. Assign a supplier to each product to reorder in one click from Alerts.</p></div>
+    <button class="btn primary" id="supAdd"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add supplier</button>
+  </header>
+  <div class="toolbar">
+    <label class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="supQ" type="search" placeholder="Search company, person or contact" aria-label="Search suppliers"></label>
+    <span class="hint" id="supSummary"></span>
+  </div>
+  <div id="supList" class="sup-grid"></div>
 </section>
 
 <!-- FORMULAS -->
@@ -165,7 +179,7 @@
     </div>
     <div class="card">
       <h2>Example data</h2>
-      <div class="row"><span class="hint grow">Items with SKUs starting <span class="mono">DEMO-</span> are examples. Remove them before loading your real stock.</span><button class="btn danger" id="clearDemo">Remove examples</button></div>
+      <div class="row"><span class="hint grow">Products with SKUs starting <span class="mono">DEMO-</span> and suppliers named <span class="mono">[Demo]</span> are examples. Remove them before loading your real stock.</span><button class="btn danger" id="clearDemo">Remove examples</button></div>
     </div>
   </div>
 </section>
@@ -183,6 +197,7 @@
       <div class="field"><label for="iQty">Quantity</label><input id="iQty" type="number" step="1"></div>
       <div class="field"><label for="iPrice">Price (Rp)</label><input id="iPrice" type="number" step="1" min="0"></div>
       <div class="field"><label for="iMin">Min stock</label><input id="iMin" type="number" step="1" min="0"></div>
+      <div class="field full"><label for="iSupplier">Supplier</label><select id="iSupplier"></select></div>
     </div>
     <div class="hint" id="iPriceHint"></div>
     <div class="note" id="iDemand" hidden></div>
@@ -191,6 +206,47 @@
     <div class="confirm" id="iDelRow" hidden><span>Delete this product from the ledger? Its movement history stays.</span><button type="button" class="btn danger small" id="iDelYes">Delete</button><button type="button" class="btn small" id="iDelNo">Keep</button></div>
     <div class="row dlg-foot"><button type="button" class="btn ghost-danger" id="iDel">Delete</button><span class="spacer"></span><button type="button" class="btn" id="iCancel">Cancel</button><button type="submit" class="btn primary" id="iSave">Save</button></div>
   </form>
+</dialog>
+
+<dialog id="supDlg">
+  <form class="dlg" id="supForm" method="dialog">
+    <div class="dlg-head"><h2 id="supDlgTitle">Supplier</h2><button type="button" class="icon-btn" id="supClose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+    <div class="fgrid">
+      <div class="field full"><label for="sCompany">Company name</label><input id="sCompany" required placeholder="e.g. PT Sumber Jaya Parts"></div>
+      <div class="field full"><label for="sContact">Person in charge</label><input id="sContact" placeholder="e.g. Budi Santoso"></div>
+    </div>
+    <div class="field-group">
+      <span class="group-l">Ways to communicate <span class="hint">· at least one</span></span>
+      <div class="fgrid">
+        <div class="field"><label for="sWhatsapp">WhatsApp</label><input id="sWhatsapp" type="tel" placeholder="+62 812 3456 7890"></div>
+        <div class="field"><label for="sWechat">WeChat ID</label><input id="sWechat" placeholder="WeChat ID"></div>
+        <div class="field"><label for="sEmail">Email</label><input id="sEmail" type="email" placeholder="sales@example.com"></div>
+        <div class="field"><label for="sPhone">Telephone</label><input id="sPhone" type="tel" placeholder="+62 21 555 0123"></div>
+      </div>
+      <p class="hint">Numbers starting with 0 are treated as Indonesian (+62). For other countries, start with + and the country code.</p>
+    </div>
+    <div class="fgrid">
+      <div class="field"><label for="sPreferred">Preferred for orders</label><select id="sPreferred"><option value="">No preference</option><option value="whatsapp">WhatsApp</option><option value="wechat">WeChat</option><option value="email">Email</option><option value="phone">Telephone</option></select></div>
+      <div class="field full"><label for="sNotes">Notes</label><textarea id="sNotes" rows="2" placeholder="Payment terms, lead time, bank details…"></textarea></div>
+    </div>
+    <div class="err" id="supErr"></div>
+    <div class="confirm" id="supDelRow" hidden><span id="supDelText">Delete this supplier?</span><button type="button" class="btn danger small" id="supDelYes">Delete</button><button type="button" class="btn small" id="supDelNo">Keep</button></div>
+    <div class="row dlg-foot"><button type="button" class="btn ghost-danger" id="supDel">Delete</button><span class="spacer"></span><button type="button" class="btn" id="supCancel">Cancel</button><button type="submit" class="btn primary" id="supSave">Save</button></div>
+  </form>
+</dialog>
+
+<dialog id="roDlg">
+  <div class="dlg">
+    <div class="dlg-head"><div><h2 id="roTitle">Reorder</h2><div class="hint" id="roSub"></div></div><button type="button" class="icon-btn" id="roClose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+    <div id="roCompare"></div>
+    <div class="fgrid">
+      <div class="field"><label for="roQty">Order quantity</label><input id="roQty" type="number" min="1" step="1" inputmode="numeric"></div>
+    </div>
+    <div id="roSupplier"></div>
+    <div class="field" id="roMsgWrap"><label for="roMsg">Message</label><textarea id="roMsg" rows="8"></textarea></div>
+    <div class="row" id="roActions"></div>
+    <div class="hint" id="roNote"></div>
+  </div>
 </dialog>
 
 <dialog id="pvDlg" class="wide">

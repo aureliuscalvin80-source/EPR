@@ -86,7 +86,23 @@ CREATE TABLE IF NOT EXISTS settings (
   id   INTEGER PRIMARY KEY CHECK (id = 1),
   json TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS suppliers (
+  id         TEXT PRIMARY KEY,
+  company    TEXT NOT NULL,
+  contact    TEXT NOT NULL DEFAULT '',
+  wechat     TEXT NOT NULL DEFAULT '',
+  whatsapp   TEXT NOT NULL DEFAULT '',
+  email      TEXT NOT NULL DEFAULT '',
+  phone      TEXT NOT NULL DEFAULT '',
+  preferred  TEXT NOT NULL DEFAULT '' CHECK (preferred IN ('','whatsapp','wechat','email','phone')),
+  notes      TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
 `;
+
+/** Columns added after the first release; ALTER them into databases created before. */
+const MIGRATIONS = [["items", "supplier_id", "TEXT"]];
 
 const DEFAULT_RULES = [
   { name: "Below safety stock", kind: "alert", scope: "ALL", severity: "crit", expr: "hist_months > 0 and qty <= safety_stock" },
@@ -100,6 +116,9 @@ export function openDb(file) {
   const db = new DatabaseSync(file);
   db.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
   db.exec(SCHEMA);
+  for (const [table, col, type] of MIGRATIONS) {
+    if (!db.prepare(`SELECT 1 FROM pragma_table_info('${table}') WHERE name = ?`).get(col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`);
+  }
   // First run: write default settings and a starter set of formulas.
   if (!db.prepare("SELECT 1 FROM settings WHERE id = 1").get()) {
     tx(db, () => {
