@@ -64,5 +64,5 @@ legacy/        the original single-file artifact
 ## Security and known limits
 
 - **No login yet.** Anyone who can reach the server can read and change everything. That's why it listens on localhost only by default. Add authentication (and HTTPS via a reverse proxy) before opening it to a network.
-- **SheetJS 0.18.5** has published advisories (prototype pollution, ReDoS) when reading crafted spreadsheets; the npm registry has no fixed release. It runs in the browser on files your own staff upload, so the risk is low, but the fix is to install 0.20.3+ from SheetJS's own CDN: `npm install https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz`.
+- **SheetJS** is installed from SheetJS's own CDN (0.20.3), because the npm registry only has 0.18.5, which has known advisories. `npm install` therefore needs access to `cdn.sheetjs.com`.
 - **It is an inventory module, not yet a full ERP.** Purchasing (POs, suppliers), sales orders/invoicing, multi-warehouse, users/roles and an audit log are the natural next modules.
