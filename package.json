@@ -1,0 +1,20 @@
+{
+  "name": "sparepart-erp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Spare-part inventory ERP: PPN and Non-PPN stock ledgers, stock moves, formula alerts, safety stock from sales reports.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server/index.js",
+    "dev": "node --disable-warning=ExperimentalWarning --watch server/index.js",
+    "seed:demo": "node --disable-warning=ExperimentalWarning scripts/seed-demo.js",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "xlsx": "0.18.5"
+  }
+}

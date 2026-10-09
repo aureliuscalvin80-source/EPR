@@ -1,25 +1,68 @@
-# Sparepart Stock Ledger
+# Sparepart ERP
 
-Inventory ledger for spare parts, kept as two ledgers (PPN and Non-PPN). Originally built and published as a Claude artifact; this repository holds its source.
+Spare-part inventory system with separate **PPN** and **Non-PPN** ledgers. It is a standalone rebuild of the *Sparepart Stock Ledger* Claude artifact (the original is kept in `legacy/`), with its own server and database and a softer, white-first design.
+
+![Inventory](docs/inventory.png)
 
 ## Features
 
-- **Inventory** – products by SKU, ledger (PPN / Non-PPN), unit (PCS / SET), quantity, price and minimum stock, with search, filters, sorting and paging.
-- **Stock moves** – record IN / OUT / ADJ movements; the last 30 days feed `out_30` and `avg_daily_out`.
-- **Alerts** – live alert list driven by user-defined formulas, with a stock gauge per item (safety stock, reorder point, suggested order).
-- **Formulas** – a small expression language (no `eval`) for alert rules and computed columns.
-- **Files** – upload Hashiru sales (Laporan Penjualan Detail) and stock (Persediaan Barang) reports, or yearly workbooks with one tab per month; they are reconciled to report totals and feed the demand history.
-- **Safety stock** – `Z × σ(monthly sales) × √((lead time + review period) ÷ 30.4)`, with reorder point and order-up-to levels; stock-out months are excluded.
-- **Import / export** – import products from Excel or CSV; export the ledger or the alerts to Excel.
+| Area | What it does |
+|---|---|
+| **Inventory** | Products by SKU and ledger, unit (PCS / SET), qty, price, min stock. Search, filters, sortable columns, paging, stock-value KPIs. |
+| **Stock moves** | Book IN / OUT / ADJ. Stock is updated on the server in one transaction, so two people booking at once can't overwrite each other. OUT below zero is refused. |
+| **Alerts** | Live list driven by alert formulas, with a gauge showing stock vs safety stock, reorder point and min stock. Export to Excel. |
+| **Formulas** | Small expression language (no `eval`) for alert rules and computed columns, with live "would trigger on N items" testing. |
+| **Files & reports** | Upload any file (≤ 15 MB). Hashiru sales reports, stock reports and yearly workbooks are parsed, reconciled to the report totals, and feed demand history. A coverage grid shows which months are loaded. |
+| **Safety stock** | `Z × σ(monthly sales) × √((lead time + check interval) ÷ 30.4)`, plus reorder point, order-up-to and suggested order. Months blocked by a stock-out are left out. |
+| **Import / export** | Import products from Excel/CSV (Indonesian number formats understood); export inventory or alerts to Excel. |
+| **Live sync** | Every open browser updates when anyone saves (Server-Sent Events). |
+
+New databases start with four formulas: *Below safety stock*, *Reorder now*, *Below min stock* and a *Suggested order* column.
 
 ## Running it
 
-`index.html` is a single self-contained page (fonts from Google Fonts, SheetJS from cdnjs).
+Requires **Node.js 22.5 or newer** (uses the built-in `node:sqlite`, so there is nothing to compile).
 
-Storage, file uploads, downloads and user permissions come from the Claude artifact runtime (`window.claude.use("db" | "assets" | "downloads" | "user")`). Opened outside claude.ai, the page loads in **offline preview** mode: the UI renders, but nothing is saved and uploads/downloads are disabled.
+```bash
+npm install
+npm start            # http://127.0.0.1:3000
+npm run seed:demo    # optional: 8 DEMO- products to try things out
+npm test             # unit + API tests
+```
 
-To run it standalone, replace the `window.claude` calls in the boot section at the bottom of the script with your own backend (e.g. Firebase/Firestore — the `db` API used here follows the same `collection` / `doc` / `onSnapshot` shape).
+| Variable | Default | Meaning |
+|---|---|---|
+| `PORT` | `3000` | HTTP port |
+| `HOST` | `127.0.0.1` | Set `0.0.0.0` to let other computers on your network use it — **read "Security" first** |
+| `DATA_DIR` | `./data` | SQLite database (`erp.sqlite`) and uploaded files (`uploads/`) |
 
-## Data
+**Back up `DATA_DIR`.** It holds everything: the database and every uploaded file.
 
-Only the code is in this repository. The ledger data (products, moves, formulas, settings, uploaded reports) lives in the artifact's own storage and is not included.
+## Moving your data from the artifact
+
+Only the code came over; your products, formulas and reports are still in the artifact's own storage.
+
+1. In the artifact, **Import & settings → Export all to Excel**.
+2. Here, **Import & settings → Import products** with that file. (The export's `Ledger` column is read as the tax column.)
+3. Re-create any custom formulas on the **Formulas** page.
+4. Re-upload your sales and stock reports on **Files & reports** to rebuild demand history.
+
+## Project layout
+
+```
+server/        Express API + SQLite (app.js routes, db.js schema, reports.js report storage)
+public/        Browser app, no build step
+  js/formula.js  formula parser/evaluator      (pure, tested)
+  js/stock.js    demand stats, safety stock    (pure, tested)
+  js/reports.js  Hashiru report readers        (pure, tested)
+  js/app.js      UI
+scripts/       seed-demo.js
+test/          node:test suites
+legacy/        the original single-file artifact
+```
+
+## Security and known limits
+
+- **No login yet.** Anyone who can reach the server can read and change everything. That's why it listens on localhost only by default. Add authentication (and HTTPS via a reverse proxy) before opening it to a network.
+- **SheetJS 0.18.5** has published advisories (prototype pollution, ReDoS) when reading crafted spreadsheets; the npm registry has no fixed release. It runs in the browser on files your own staff upload, so the risk is low, but the fix is to install 0.20.3+ from SheetJS's own CDN: `npm install https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz`.
+- **It is an inventory module, not yet a full ERP.** Purchasing (POs, suppliers), sales orders/invoicing, multi-warehouse, users/roles and an audit log are the natural next modules.

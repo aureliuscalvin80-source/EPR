@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sparepart ERP</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%235b6cf0'/%3E%3Cpath d='M10 12l6-3 6 3v8l-6 3-6-3z' fill='none' stroke='white' stroke-width='2' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="/css/app.css">
+<script src="/vendor/xlsx/xlsx.full.min.js" defer></script>
+<script type="module" src="/js/app.js"></script>
+</head>
+<body>
+<div class="app">
+
+<aside class="sidebar">
+  <div class="brand">
+    <span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 8l7-3.5L19 8v8l-7 3.5L5 16z"/><path d="M5 8l7 3.5L19 8M12 11.5V19.5"/></svg></span>
+    <div class="brand-t"><strong>Sparepart ERP</strong><span id="ledgerCount">—</span></div>
+  </div>
+  <nav class="nav" role="tablist" aria-label="Sections">
+    <button class="nav-item" role="tab" data-tab="inventory" aria-selected="true"><svg viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg><span>Inventory</span></button>
+    <button class="nav-item" role="tab" data-tab="moves" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M7 20V4M3 8l4-4 4 4M17 4v16M13 16l4 4 4-4"/></svg><span>Stock moves</span></button>
+    <button class="nav-item" role="tab" data-tab="alerts" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span>Alerts</span><span class="count zero" id="alertBadge">0</span></button>
+    <button class="nav-item" role="tab" data-tab="formulas" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M18 7V4H6l6 8-6 8h12v-3"/></svg><span>Formulas</span></button>
+    <button class="nav-item" role="tab" data-tab="files" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg><span>Files &amp; reports</span></button>
+    <button class="nav-item" role="tab" data-tab="settings" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg><span>Import &amp; settings</span></button>
+  </nav>
+  <div class="sync"><span class="dot" id="syncDot"></span><span id="syncStatus">Connecting…</span></div>
+</aside>
+
+<main class="main">
+
+<!-- INVENTORY -->
+<section class="page" id="page-inventory">
+  <header class="page-head">
+    <div><h1>Inventory</h1><p class="sub">Stock on hand across the PPN and Non-PPN ledgers.</p></div>
+    <button class="btn primary" id="addBtn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add product</button>
+  </header>
+  <div class="kpis" id="kpis"></div>
+  <div class="card">
+    <div class="toolbar">
+      <label class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="search" placeholder="Search SKU or product name" aria-label="Search"></label>
+      <select id="fTax" aria-label="Ledger"><option value="">All ledgers</option><option value="PPN">PPN only</option><option value="NON">Non-PPN only</option></select>
+      <select id="fUnit" aria-label="Unit"><option value="">All units</option><option value="PCS">PCS</option><option value="SET">SET</option></select>
+      <select id="fAlert" aria-label="Alert filter"><option value="">All items</option><option value="any">With alerts</option><option value="crit">Critical only</option><option value="zero">Out of stock</option></select>
+    </div>
+    <div class="tbl-wrap"><table id="invTbl"><thead></thead><tbody></tbody></table></div>
+    <div class="pager" id="pager"></div>
+  </div>
+</section>
+
+<!-- MOVES -->
+<section class="page" id="page-moves" hidden>
+  <header class="page-head"><div><h1>Stock moves</h1><p class="sub">Book goods received, sold or counted. Feeds <span class="mono">out_30</span> and <span class="mono">avg_daily_out</span>.</p></div></header>
+  <div class="card">
+    <h2>Record a movement</h2>
+    <div class="fgrid">
+      <div class="field span2"><label for="mvItem">Product (SKU · ledger)</label><input id="mvItem" list="itemList" placeholder="Type a SKU and pick from the list" autocomplete="off"></div>
+      <div class="field"><label for="mvType">Type</label><select id="mvType"><option value="IN">IN · received</option><option value="OUT">OUT · sold / used</option><option value="ADJ">ADJ · stock count (set to)</option></select></div>
+      <div class="field"><label for="mvQty">Quantity</label><input id="mvQty" type="number" min="0" step="1" inputmode="numeric"></div>
+      <div class="field span2"><label for="mvNote">Reference / note</label><input id="mvNote" placeholder="e.g. PO-0912, invoice no., customer"></div>
+    </div>
+    <div class="row"><button class="btn primary" id="mvSave">Record movement</button><span id="mvMsg" class="hint"></span></div>
+    <datalist id="itemList"></datalist>
+  </div>
+  <div class="card">
+    <h2>Last 30 days</h2>
+    <div class="tbl-wrap"><table id="mvTbl"><thead><tr><th>Time</th><th>SKU</th><th>Ledger</th><th>Type</th><th class="num">Qty Δ</th><th>Note</th></tr></thead><tbody></tbody></table></div>
+  </div>
+</section>
+
+<!-- ALERTS -->
+<section class="page" id="page-alerts" hidden>
+  <header class="page-head"><div><h1>Alerts</h1><p class="sub">Re-evaluated live whenever stock, prices, reports or formulas change.</p></div>
+    <button class="btn" id="expAlerts2"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Export to Excel</button></header>
+  <div class="card flush" id="alertList"></div>
+</section>
+
+<!-- FORMULAS -->
+<section class="page" id="page-formulas" hidden>
+  <header class="page-head"><div><h1>Formulas</h1><p class="sub">Alerts notify you when a condition is true. Columns add a computed number to the inventory table.</p></div></header>
+  <div class="grid2">
+    <div class="card">
+      <h2 id="ruleFormTitle">New formula</h2>
+      <div class="fgrid">
+        <div class="field full"><label for="rName">Name</label><input id="rName" placeholder="e.g. Reorder before lead time"></div>
+        <div class="field"><label for="rKind">Type</label><select id="rKind"><option value="alert">Alert (true = notify)</option><option value="column">Column (shows a number)</option></select></div>
+        <div class="field"><label for="rScope">Applies to</label><select id="rScope"><option value="ALL">All items</option><option value="PPN">PPN only</option><option value="NON">Non-PPN only</option></select></div>
+        <div class="field" id="rSevWrap"><label for="rSev">Severity</label><select id="rSev"><option value="warn">Warning</option><option value="crit">Critical</option></select></div>
+      </div>
+      <div class="field"><label for="rExpr">Formula</label><textarea id="rExpr" rows="3" placeholder="qty < avg_daily_out * lead_time"></textarea></div>
+      <div id="rTest" class="hint">Write a formula to see how many items it matches.</div>
+      <div class="row"><button class="btn primary" id="rSave">Save formula</button><button class="btn" id="rCancel" hidden>Cancel edit</button></div>
+    </div>
+    <div class="card">
+      <h2>Variables you can use</h2>
+      <div class="vars" id="varList"></div>
+      <p class="hint">Operators: <span class="mono">+ - * / % ^ &lt; &lt;= &gt; &gt;= == != and or not</span>. Functions: <span class="mono">min max abs round ceil floor sqrt if(cond, a, b)</span>. Columns can be used by later formulas as <span class="mono">col_&lt;name&gt;</span>.</p>
+    </div>
+  </div>
+  <h2 class="section-t">Saved formulas</h2>
+  <div id="ruleList" class="grid2"></div>
+</section>
+
+<!-- FILES -->
+<section class="page" id="page-files" hidden>
+  <header class="page-head"><div><h1>Files &amp; reports</h1><p class="sub">Hashiru sales reports (Laporan Penjualan Detail) and stock reports (Persediaan Barang) feed the safety-stock calculation.</p></div></header>
+  <div class="card">
+    <h2>Upload files</h2>
+    <p class="hint">Any file type up to 15 MB each. Report type, ledger and month are guessed from the file name — check them before uploading.</p>
+    <div class="fgrid">
+      <div class="field span2"><label for="fInput">Files</label><input id="fInput" type="file" multiple></div>
+      <div class="field"><label for="fSku">Link to SKU (optional)</label><input id="fSku" list="itemList" placeholder="SKU" autocomplete="off"></div>
+      <div class="field"><label for="fNote">Note</label><input id="fNote" placeholder="e.g. supplier invoice Oct"></div>
+    </div>
+    <div class="tbl-wrap plan" id="fPlanWrap" hidden><table><thead><tr><th>File</th><th>Use as</th><th>Ledger</th><th>Month</th></tr></thead><tbody id="fPlan"></tbody></table></div>
+    <label class="chk"><input type="checkbox" id="fSetStock" checked> Set current stock from the newest stock report (only when it reconciles to the report total)</label>
+    <div class="row"><button class="btn primary" id="fUpload">Upload</button><span id="fMsg" class="hint"></span></div>
+  </div>
+  <div class="card">
+    <div class="row"><h2>Report coverage</h2><span class="spacer"></span><span class="legend"><span class="c-ok">✓</span> reconciles · <span class="c-q">?</span> total not found · <span class="c-x">✗</span> mismatch</span></div>
+    <div class="tbl-wrap cov" id="covWrap"></div>
+    <div class="hint" id="covHint"></div>
+  </div>
+  <div class="card">
+    <div class="toolbar">
+      <label class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="fq" type="search" placeholder="Filter files by name, SKU or note" aria-label="Filter files"></label>
+      <span class="hint" id="fUsage"></span>
+    </div>
+    <div class="tbl-wrap"><table><thead><tr><th>File</th><th>Used as</th><th>SKU</th><th>Note</th><th class="num">Size</th><th>Uploaded</th><th></th></tr></thead><tbody id="fTbl"></tbody></table></div>
+  </div>
+</section>
+
+<!-- SETTINGS -->
+<section class="page" id="page-settings" hidden>
+  <header class="page-head"><div><h1>Import &amp; settings</h1><p class="sub">Load products in bulk, tune the stock model, export data.</p></div></header>
+  <div class="grid2">
+    <div class="card">
+      <h2>Import products</h2>
+      <p class="hint">Excel or CSV. Recognised headers: <span class="mono">SKU / Kode</span>, <span class="mono">Name / Nama</span>, <span class="mono">Unit / Satuan</span> (PCS or SET), <span class="mono">Qty / Stok</span>, <span class="mono">Price / Harga</span>, <span class="mono">Tax / PPN</span>, <span class="mono">Min</span>. Rows with the same SKU and ledger are updated, not duplicated.</p>
+      <div class="field"><label for="impFile">File</label><input id="impFile" type="file" accept=".xlsx,.xls,.csv"></div>
+      <div class="field"><label for="impTax">Ledger when the file has no Tax column</label><select id="impTax"><option value="NON">Non-PPN</option><option value="PPN">PPN</option></select></div>
+      <div id="impPreview" class="hint"></div>
+      <div class="row"><button class="btn primary" id="impGo" disabled>Import</button></div>
+    </div>
+    <div class="card">
+      <h2>Stock model</h2>
+      <div class="fgrid">
+        <div class="field"><label for="sPpn">Effective PPN rate (%)</label><input id="sPpn" type="number" step="0.01" min="0"></div>
+        <div class="field"><label for="sPriceMode">Stored prices are</label><select id="sPriceMode"><option value="excl">Excluding PPN (DPP)</option><option value="incl">Including PPN</option></select></div>
+        <div class="field"><label for="sLead">Supplier lead time (days)</label><input id="sLead" type="number" step="1" min="0"></div>
+        <div class="field"><label for="sReview">Stock check every (days)</label><input id="sReview" type="number" step="1" min="0"></div>
+        <div class="field"><label for="sService">Service level (%)</label><input id="sService" type="number" step="0.5" min="50" max="99.9"></div>
+        <div class="field"><label for="sWindow">Demand history used (months)</label><input id="sWindow" type="number" step="1" min="3" max="60"></div>
+      </div>
+      <div class="note">Safety stock = Z × σ(monthly sales) × √((lead time + check interval) ÷ 30.4). Reorder point = daily sales × (lead time + check interval) + safety stock. Order up to = daily sales × (lead time + 2 × check interval) + safety stock. Months where stock was zero at both the start and end are left out, because sales were blocked, not low.</div>
+      <div class="row"><button class="btn primary" id="sSave">Save settings</button><span id="sMsg" class="hint"></span></div>
+    </div>
+    <div class="card">
+      <h2>Export</h2>
+      <div class="row"><button class="btn" id="expAll">Export inventory to Excel</button><button class="btn" id="expAlerts">Export alerts to Excel</button></div>
+    </div>
+    <div class="card">
+      <h2>Example data</h2>
+      <div class="row"><span class="hint grow">Items with SKUs starting <span class="mono">DEMO-</span> are examples. Remove them before loading your real stock.</span><button class="btn danger" id="clearDemo">Remove examples</button></div>
+    </div>
+  </div>
+</section>
+</main>
+</div>
+
+<dialog id="itemDlg">
+  <form class="dlg" id="itemForm" method="dialog">
+    <div class="dlg-head"><h2 id="itemDlgTitle">Product</h2><button type="button" class="icon-btn" id="iClose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+    <div class="fgrid">
+      <div class="field"><label for="iSku">SKU code</label><input id="iSku" required class="mono"></div>
+      <div class="field"><label for="iTax">Ledger</label><select id="iTax"><option value="PPN">PPN</option><option value="NON">Non-PPN</option></select></div>
+      <div class="field full"><label for="iName">Product name</label><input id="iName" required></div>
+      <div class="field"><label for="iUnit">Unit</label><select id="iUnit"><option value="PCS">PCS</option><option value="SET">SET</option></select></div>
+      <div class="field"><label for="iQty">Quantity</label><input id="iQty" type="number" step="1"></div>
+      <div class="field"><label for="iPrice">Price (Rp)</label><input id="iPrice" type="number" step="1" min="0"></div>
+      <div class="field"><label for="iMin">Min stock</label><input id="iMin" type="number" step="1" min="0"></div>
+    </div>
+    <div class="hint" id="iPriceHint"></div>
+    <div class="note" id="iDemand" hidden></div>
+    <div class="hint" id="iFiles"></div>
+    <div class="err" id="iErr"></div>
+    <div class="confirm" id="iDelRow" hidden><span>Delete this product from the ledger? Its movement history stays.</span><button type="button" class="btn danger small" id="iDelYes">Delete</button><button type="button" class="btn small" id="iDelNo">Keep</button></div>
+    <div class="row dlg-foot"><button type="button" class="btn ghost-danger" id="iDel">Delete</button><span class="spacer"></span><button type="button" class="btn" id="iCancel">Cancel</button><button type="submit" class="btn primary" id="iSave">Save</button></div>
+  </form>
+</dialog>
+
+<dialog id="pvDlg" class="wide">
+  <div class="dlg">
+    <div class="dlg-head"><h2 id="pvTitle">Preview</h2><button type="button" class="icon-btn" id="pvClose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+    <div class="pv" id="pvBody"></div>
+    <div class="hint">First 40 rows of the first sheet.</div>
+  </div>
+</dialog>
+
+<div class="toast" id="toast" role="status" hidden></div>
+</body>
+</html>
