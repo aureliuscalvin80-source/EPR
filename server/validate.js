@@ -20,6 +20,7 @@ export function itemFields(b) {
     qty: numIn(b.qty, "Quantity"),
     price: numIn(b.price, "Price", { min: 0 }),
     minStock: numIn(b.minStock, "Min stock", { min: 0 }),
+    sellPrice: numIn(b.sellPrice, "Sell price", { min: 0 }),
   };
 }
 export function ruleFields(b) {

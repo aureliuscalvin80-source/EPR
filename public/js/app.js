@@ -3,11 +3,12 @@ import { parse, evalAst, VARS, colVar } from "./formula.js";
 import { evaluate, baseVars, moveStats, coverage, MON_N, ymOf, ymLabel, DEFAULT_SETTINGS } from "./stock.js";
 import { detectPlan, detectMonth, monthOfName, hasKodeHeader, taxFromHeader, parseSales, parseStock, parseWorkbook, readProductList } from "./reports.js";
 import { fmtRp, fmtN, esc, keyOf, taxLabel, today } from "./util.js";
+import { lineAmount, invoiceTotals, paymentState, terbilang, invoiceMessage, invoiceHtml } from "./invoice.js";
 import { channelLabel, supplierChannels, waNumber, whatsappUrl, mailtoUrl, telUrl, defaultOrderQty, poMessage, poSubject } from "./contact.js";
 
 /* ---------- state ---------- */
 const S = {
-  items: {}, rules: [], suppliers: [], pos: [], users: [], me: null, onOrder: new Map(), files: [], hist: [], dem: {}, moves: [], settings: { ...DEFAULT_SETTINGS }, usage: { bytes: 0 },
+  items: {}, rules: [], suppliers: [], pos: [], customers: [], invoices: [], invDem: undefined, users: [], me: null, onOrder: new Map(), files: [], hist: [], dem: {}, moves: [], settings: { ...DEFAULT_SETTINGS }, usage: { bytes: 0 },
   derived: new Map(), alerts: [], colRules: [], dstats: new Map(), win: { PPN: [], NON: [] },
   sort: { k: "sku", d: 1 }, page: 0, per: 100, editKey: null, editRule: null, loaded: false,
 };
@@ -48,7 +49,10 @@ async function load() {
   S.usage = st.usage;
   S.suppliers = st.suppliers;
   S.pos = st.pos;
-  if (!S.loaded || !document.activeElement?.closest("#page-settings")) fillSettings();
+  S.customers = st.customers;
+  S.invoices = st.invoices;
+  S.invDem = st.invDem;
+  if (!S.loaded || !document.activeElement?.closest("#page-settings")) { fillSettings(); fillInvoicing(); }
   S.loaded = true;
   recompute();
 }
@@ -59,12 +63,16 @@ function scheduleReload() {
 }
 
 function recompute() {
-  const r = evaluate({ items: S.items, rules: S.rules, moves: S.moves, dem: S.dem, hist: S.hist, settings: S.settings, pos: S.pos });
+  const r = evaluate({ items: S.items, rules: S.rules, moves: S.moves, dem: S.dem, hist: S.hist, settings: S.settings, pos: S.pos, invDem: S.invDem });
   Object.assign(S, { derived: r.derived, alerts: r.alerts, colRules: r.colRules, dstats: r.dstats, win: r.win, onOrder: r.onOrder });
   const drafts = S.pos.filter((p) => p.status === "draft").length;
   $("#poBadge").textContent = drafts;
   $("#poBadge").classList.toggle("zero", !drafts);
   $("#poBadge").title = plural(drafts, "draft order");
+  const overdue = S.invoices.filter((i) => invState(i) === "overdue").length;
+  $("#invBadge").textContent = overdue;
+  $("#invBadge").classList.toggle("zero", !overdue);
+  $("#invBadge").title = plural(overdue, "overdue invoice");
   const b = $("#alertBadge");
   b.textContent = S.alerts.length;
   b.classList.toggle("zero", !S.alerts.length);
@@ -85,6 +93,9 @@ function renderAll() {
   fillSupplierSelect();
   renderPos();
   refreshPoDialog();
+  renderInvoices();
+  renderCustomers();
+  refreshInvDialog();
   $("#ledgerCount").textContent = nf(Object.keys(S.items).length) + " items";
 }
 
@@ -140,7 +151,7 @@ function invRows() {
 
 function renderInv() {
   const cols = [
-    ["sku", "SKU"], ["name", "Product name"], ["tax", "Ledger"], ["unit", "Unit"], ["qty", "Qty", "num"], ["price", "Price", "num"],
+    ["sku", "SKU"], ["name", "Product name"], ["tax", "Ledger"], ["unit", "Unit"], ["qty", "Qty", "num"], ["price", "Purchase", "num"], ["sellPrice", "Sell", "num"],
     ["price_incl", "Incl. PPN", "num"], ["value", "Stock value", "num"], ["minStock", "Min", "num"], ["supplier", "Supplier"],
     ...S.colRules.map((r) => ["col:" + r.id, r.name, "num"]), ["alerts", "Alerts"],
   ];
@@ -166,7 +177,7 @@ function renderInv() {
     const d = S.derived.get(it.key) || { vars: {}, cols: {}, alerts: [] };
     return `<tr data-key="${esc(it.key)}" class="${d.sev ? "sev-" + d.sev : ""}">
       <td class="sku">${esc(it.sku)}</td><td class="name">${esc(it.name)}</td><td>${ledgerChip(it.tax)}</td><td><span class="chip unit">${esc(it.unit)}</span></td>
-      <td class="num"><span class="qty ${d.sev}">${fmtN(+it.qty || 0)}</span>${d.vars.on_order ? `<span class="qty-on" title="On order">+${fmtN(d.vars.on_order)}</span>` : ""}</td><td class="num">${fmtRp(+it.price || 0)}</td>
+      <td class="num"><span class="qty ${d.sev}">${fmtN(+it.qty || 0)}</span>${d.vars.on_order ? `<span class="qty-on" title="On order">+${fmtN(d.vars.on_order)}</span>` : ""}</td><td class="num">${fmtRp(+it.price || 0)}</td><td class="num">${it.sellPrice ? fmtRp(+it.sellPrice) : dash}</td>
       <td class="num">${it.tax === "PPN" ? fmtRp(d.vars.price_incl) : dash}</td><td class="num">${fmtRp(d.vars.value)}</td>
       <td class="num">${it.minStock ? fmtN(+it.minStock) : dash}</td>
       <td class="name">${esc(supplierOf(it)?.company || "") || dash}</td>
@@ -381,6 +392,7 @@ function openItem(key) {
   $("#iQty").value = it.qty;
   $("#iPrice").value = it.price;
   $("#iMin").value = it.minStock || "";
+  $("#iSell").value = it.sellPrice || "";
   fillSupplierSelect();
   $("#iSupplier").value = it.supplierId || "";
   $("#iErr").textContent = "";
@@ -426,7 +438,7 @@ $("#iDelYes").onclick = async () => {
 };
 $("#itemForm").addEventListener("submit", async (ev) => {
   ev.preventDefault();
-  const body = { sku: $("#iSku").value.trim(), tax: $("#iTax").value, name: $("#iName").value.trim(), unit: $("#iUnit").value, qty: $("#iQty").value, price: $("#iPrice").value, minStock: $("#iMin").value, supplierId: $("#iSupplier").value };
+  const body = { sku: $("#iSku").value.trim(), tax: $("#iTax").value, name: $("#iName").value.trim(), unit: $("#iUnit").value, qty: $("#iQty").value, price: $("#iPrice").value, minStock: $("#iMin").value, sellPrice: $("#iSell").value, supplierId: $("#iSupplier").value };
   if (!body.sku || !body.name) { $("#iErr").textContent = "SKU and product name are required."; return; }
   $("#iSave").disabled = true;
   try {
@@ -821,7 +833,7 @@ function exportXlsx(rows, filename) {
 $("#expAll").onclick = () => exportXlsx(Object.values(S.items).map((it) => {
   const d = S.derived.get(it.key);
   const o = { SKU: it.sku, Name: it.name, Ledger: taxLabel(it.tax), Unit: it.unit, Qty: +it.qty || 0, Price: +it.price || 0,
-    "Price incl PPN": it.tax === "PPN" ? Math.round(d.vars.price_incl) : "", "Stock value (excl PPN)": Math.round(d.vars.value), "Min stock": +it.minStock || 0, Supplier: supplierOf(it)?.company || "" };
+    "Price incl PPN": it.tax === "PPN" ? Math.round(d.vars.price_incl) : "", "Stock value (excl PPN)": Math.round(d.vars.value), "Min stock": +it.minStock || 0, "Sell price": +it.sellPrice || 0, Supplier: supplierOf(it)?.company || "" };
   for (const r of S.colRules) o[r.name] = d.cols[r.id];
   o.Alerts = d.alerts.map((r) => r.name).join("; ");
   return o;
@@ -1264,6 +1276,405 @@ $("#poChannels").addEventListener("click", async (e) => {
     await load();
   } catch (er) { $("#poErr").textContent = er.message; }
 });
+
+/* ---------- sales invoices ---------- */
+const IST = { draft: "Draft", unpaid: "Unpaid", partial: "Partly paid", overdue: "Overdue", paid: "Paid", void: "Void" };
+/** draft | void | paid | overdue | partial | unpaid */
+function invState(i) {
+  if (i.status !== "issued") return i.status;
+  const p = paymentState(i.total, i.paid, i.dueDate, today());
+  return p.state === "paid" ? "paid" : p.overdue ? "overdue" : p.state;
+}
+const invBalance = (i) => (i.status === "issued" ? Math.max(0, Math.round(i.total - i.paid)) : 0);
+const customerById = (id) => S.customers.find((c) => c.id === id);
+const ymdLabel = (ymd) => (ymd ? new Date(ymd + "T00:00:00").toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" }) : "");
+const addDaysYmd = (ymd, n) => { const d = new Date(ymd + "T00:00:00"); d.setDate(d.getDate() + n); return today(d); };
+let invFilter = "unpaid";
+
+function renderInvoices() {
+  const issued = S.invoices.filter((i) => i.status === "issued");
+  const owed = issued.reduce((a, i) => a + invBalance(i), 0);
+  const od = issued.filter((i) => invState(i) === "overdue");
+  const month = today().slice(0, 7);
+  const sales = issued.filter((i) => i.date.startsWith(month)).reduce((a, i) => a + i.total, 0);
+  const drafts = S.invoices.filter((i) => i.status === "draft").length;
+  $("#invKpis").innerHTML = [
+    ["non", "Still owed to you", fmtRp(owed), plural(issued.filter((i) => invBalance(i) > 0).length, "unpaid invoice")],
+    ["crit", "Overdue", fmtRp(od.reduce((a, i) => a + invBalance(i), 0)), plural(od.length, "invoice")],
+    ["ppn", "Sales this month", fmtRp(sales), "issued, incl. PPN"],
+    ["warn", "Drafts", nf(drafts), "not issued yet"],
+  ].map(([c, l, v, sub]) => `<div class="kpi"><span class="l"><span class="ic ${c}">${ICON.box}</span>${l}</span><span class="v">${v}</span><span class="s">${sub}</span></div>`).join("");
+  const q = $("#invQ").value.trim().toLowerCase();
+  const pick = { unpaid: (st) => ["unpaid", "partial", "overdue"].includes(st), overdue: (st) => st === "overdue", draft: (st) => st === "draft", paid: (st) => st === "paid", void: (st) => st === "void", all: () => true }[invFilter];
+  const rows = S.invoices.filter((i) => pick(invState(i)) && (!q || [i.number, i.custName, customerById(i.customerId)?.name].join(" ").toLowerCase().includes(q)));
+  const tb = $("#invTblList tbody");
+  if (!rows.length) {
+    tb.innerHTML = `<tr><td colspan="8"><div class="empty">${S.invoices.length ? "No invoices here." : `<strong>No invoices yet</strong><span>Add your customers, set sell prices on products, then click “New invoice”.</span>`}</div></td></tr>`;
+    return;
+  }
+  tb.innerHTML = rows.map((i) => {
+    const st = invState(i), name = i.status === "draft" ? customerById(i.customerId)?.name || "—" : i.custName;
+    const total = i.status === "draft" ? invoiceTotals(i.lines, i.tax, S.settings.ppnRate).total : i.total;
+    return `<tr data-inv="${esc(i.id)}"><td class="sku">${esc(i.number || "Draft")}</td><td>${ymdLabel(i.date)}</td><td class="name">${esc(name)}</td><td>${ledgerChip(i.tax)}</td>
+      <td class="num">${fmtRp(total)}</td><td class="num">${i.status === "issued" ? fmtRp(invBalance(i)) : '<span class="muted">—</span>'}</td>
+      <td><span class="chip ist-${st}">${IST[st]}</span></td><td>${i.status === "issued" && invBalance(i) ? ymdLabel(i.dueDate) : '<span class="muted">—</span>'}</td></tr>`;
+  }).join("");
+}
+$("#invSeg").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-f]");
+  if (!b) return;
+  invFilter = b.dataset.f;
+  $("#invSeg").querySelectorAll("button").forEach((x) => x.setAttribute("aria-selected", String(x === b)));
+  renderInvoices();
+});
+$("#invQ").addEventListener("input", renderInvoices);
+$("#invTblList").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-inv]"); if (tr) openInvoice(tr.dataset.inv); });
+
+/* customers */
+function renderCustomers() {
+  const q = $("#custQ").value.trim().toLowerCase();
+  const stats = new Map();
+  for (const i of S.invoices) {
+    if (i.status !== "issued") continue;
+    const x = stats.get(i.customerId) || { n: 0, owed: 0 };
+    x.n++;
+    x.owed += invBalance(i);
+    stats.set(i.customerId, x);
+  }
+  $("#custSummary").textContent = plural(S.customers.length, "customer");
+  const rows = S.customers.filter((c) => !q || [c.name, c.contact, c.npwp, c.phone, c.whatsapp, c.email].join(" ").toLowerCase().includes(q));
+  const tb = $("#custTbl tbody");
+  if (!rows.length) {
+    tb.innerHTML = `<tr><td colspan="6"><div class="empty">${S.customers.length ? "No customers match." : "<strong>No customers yet</strong><span>Add the people and companies you sell to.</span>"}</div></td></tr>`;
+    return;
+  }
+  tb.innerHTML = rows.map((c) => {
+    const x = stats.get(c.id) || { n: 0, owed: 0 };
+    return `<tr data-cust="${esc(c.id)}"><td class="name"><strong>${esc(c.name)}</strong></td><td>${esc(c.contact)}</td><td>${esc(c.whatsapp || c.phone)}</td><td class="sku">${esc(c.npwp)}</td>
+      <td class="num">${x.n}</td><td class="num">${x.owed ? `<span class="err">${fmtRp(x.owed)}</span>` : '<span class="muted">—</span>'}</td></tr>`;
+  }).join("");
+}
+$("#custQ").addEventListener("input", renderCustomers);
+$("#custTbl").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-cust]"); if (tr) openCustomer(tr.dataset.cust); });
+let custEdit = null, custReturn = null;
+function openCustomer(id, onSaved = null) {
+  custEdit = id;
+  custReturn = onSaved;
+  const c = id ? customerById(id) : {};
+  $("#custTitle").textContent = id ? "Edit customer" : "Add customer";
+  for (const [f, el] of [["name", "#cName"], ["contact", "#cContact"], ["whatsapp", "#cWhatsapp"], ["phone", "#cPhone"], ["email", "#cEmail"], ["address", "#cAddress"], ["npwp", "#cNpwp"], ["notes", "#cNotes"]]) $(el).value = c[f] || "";
+  $("#custErr").textContent = "";
+  $("#custDel").hidden = !id;
+  $("#custDel").dataset.confirm = "";
+  $("#custDel").textContent = "Delete";
+  $("#custDlg").showModal();
+}
+$("#custAdd").onclick = () => openCustomer(null);
+$("#custCancel").onclick = $("#custClose").onclick = () => $("#custDlg").close();
+$("#custDel").onclick = async () => {
+  const b = $("#custDel");
+  if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = "Confirm delete"; return; }
+  try { await api.deleteCustomer(custEdit); $("#custDlg").close(); toast("Customer deleted"); scheduleReload(); }
+  catch (e) { $("#custErr").textContent = e.message; }
+};
+$("#custForm").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const body = { name: $("#cName").value, contact: $("#cContact").value, whatsapp: $("#cWhatsapp").value, phone: $("#cPhone").value, email: $("#cEmail").value, address: $("#cAddress").value, npwp: $("#cNpwp").value, notes: $("#cNotes").value };
+  $("#custSave").disabled = true;
+  try {
+    const r = custEdit ? (await api.updateCustomer(custEdit, body), { id: custEdit }) : await api.createCustomer(body);
+    $("#custDlg").close();
+    toast("Customer saved");
+    await load();
+    if (custReturn) custReturn(r.id);
+  } catch (e) { $("#custErr").textContent = e.message; } finally { $("#custSave").disabled = false; }
+});
+
+/* new invoice */
+function fillNewInvCustomers(selected = "") {
+  $("#invNewCust").innerHTML = `<option value="">Choose a customer…</option>` + S.customers.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("");
+  $("#invNewCust").value = selected;
+}
+$("#invNew").onclick = () => { fillNewInvCustomers(); $("#invNewDlg").showModal(); };
+$("#invNewCancel").onclick = () => $("#invNewDlg").close();
+$("#invNewCustAdd").onclick = () => { $("#invNewDlg").close(); openCustomer(null, (id) => { fillNewInvCustomers(id); $("#invNewDlg").showModal(); }); };
+$("#invNewGo").onclick = async () => {
+  const cust = $("#invNewCust").value;
+  if (!cust) { toast("Choose a customer."); return; }
+  try {
+    const r = await api.invCreate($("#invNewTax").value, cust);
+    $("#invNewDlg").close();
+    await load();
+    openInvoice(r.id);
+  } catch (e) { handleErr(e); }
+};
+
+/* invoice dialog: drafts are edited locally and saved with Save / Issue */
+let invId = null, invEdit = null, invDirty = false, invSendOpen = false;
+function openInvoice(id) {
+  invId = id;
+  invEdit = null;
+  invDirty = false;
+  invSendOpen = false;
+  $("#invErr").textContent = "";
+  renderInvoiceDialog();
+  if (!$("#invDlg").open) $("#invDlg").showModal();
+}
+function refreshInvDialog() {
+  if (!$("#invDlg").open || !invId) return;
+  if (!S.invoices.some((i) => i.id === invId)) { $("#invDlg").close(); toast("That invoice was deleted."); return; }
+  if (!invDirty) { invEdit = null; renderInvoiceDialog(); }
+}
+const curInv = () => S.invoices.find((i) => i.id === invId);
+function renderInvoiceDialog() {
+  const inv = curInv();
+  if (!inv) return;
+  const draft = inv.status === "draft", edit = draft && canEdit();
+  if (draft && !invEdit) invEdit = { customerId: inv.customerId, date: inv.date, dueDate: inv.dueDate, note: inv.note, lines: inv.lines.map((l) => ({ ...l })) };
+  const st = invState(inv);
+  const lines = draft ? invEdit.lines : inv.lines;
+  $("#invTitle").innerHTML = `${esc(inv.number || "Draft invoice")} <span class="chip ist-${st}">${IST[st]}</span> ${ledgerChip(inv.tax)}`;
+  $("#invMeta").textContent = draft ? `Created by ${inv.createdBy}` : `Issued ${inv.issuedAt ? new Date(inv.issuedAt).toLocaleDateString("id-ID") : ""} by ${inv.issuedBy}`;
+  $("#invVoidNote").hidden = inv.status !== "void";
+  $("#invVoidNote").textContent = inv.status === "void" ? `Voided ${new Date(inv.voidedAt).toLocaleDateString("id-ID")}: ${inv.voidReason}. The stock was put back.` : "";
+
+  // header fields
+  if (draft) {
+    $("#invHead").innerHTML = `
+      <div class="field span2"><label for="ivCust">Customer</label><select id="ivCust" ${edit ? "" : "disabled"}>${S.customers.map((c) => `<option value="${esc(c.id)}"${c.id === invEdit.customerId ? " selected" : ""}>${esc(c.name)}</option>`).join("")}</select></div>
+      <div class="field"><label for="ivDate">Invoice date</label><input id="ivDate" type="date" value="${esc(invEdit.date)}" ${edit ? "" : "disabled"}></div>
+      <div class="field"><label for="ivDue">Due date</label><input id="ivDue" type="date" value="${esc(invEdit.dueDate)}" ${edit ? "" : "disabled"}></div>`;
+  } else {
+    $("#invHead").innerHTML = `
+      <div class="field span2"><span class="group-l">Bill to</span><div><strong>${esc(inv.custName)}</strong><div class="hint">${esc(inv.custAddress).replace(/\n/g, "<br>")}</div>${inv.custNpwp ? `<div class="hint">NPWP ${esc(inv.custNpwp)}</div>` : ""}</div></div>
+      <div class="field"><span class="group-l">Invoice date</span><div>${ymdLabel(inv.date)}</div></div>
+      <div class="field"><label for="ivDue">Due date</label><input id="ivDue" type="date" value="${esc(inv.dueDate)}" ${inv.status === "issued" && canEdit() ? "" : "disabled"}></div>
+      ${inv.tax === "PPN" ? `<div class="field"><label for="ivNsfp">e-Faktur number (NSFP)</label><input id="ivNsfp" class="mono" value="${esc(inv.nsfp)}" placeholder="from Coretax" ${inv.status === "issued" && canEdit() ? "" : "disabled"}></div>` : ""}`;
+  }
+
+  // lines
+  const stockLeft = (key) => S.items[key] ? +S.items[key].qty || 0 : 0;
+  const needBy = new Map();
+  for (const l of lines) needBy.set(l.itemKey, (needBy.get(l.itemKey) || 0) + l.qty);
+  $("#invLines thead").innerHTML = `<tr><th class="hide-sm">SKU</th><th>Product</th>${draft ? `<th class="num hide-sm">In stock</th>` : ""}<th class="num">Qty</th><th class="num">Price</th><th class="num hide-sm">Disc %</th><th class="num${draft ? " hide-sm" : ""}">Amount</th>${edit ? "<th></th>" : ""}</tr>`;
+  $("#invLines tbody").innerHTML = lines.length ? lines.map((l, i) => {
+    const short = draft && needBy.get(l.itemKey) > stockLeft(l.itemKey);
+    return `<tr><td class="sku hide-sm">${esc(l.sku)}</td><td class="name">${esc(l.name)}<div class="hint mono sm-only">${esc(l.sku)}</div>${draft && !(+l.price) ? '<div class="err">No price</div>' : ""}</td>
+      ${draft ? `<td class="num hide-sm${short ? " short" : ""}" title="${short ? "Not enough stock to issue" : ""}">${fmtN(stockLeft(l.itemKey))}</td>` : ""}
+      <td class="num">${edit ? `<input class="q" type="number" min="1" step="1" value="${l.qty}" data-il="${i}" data-if="qty" aria-label="Quantity for ${esc(l.sku)}">` : fmtN(l.qty)} <span class="hint">${esc(l.unit)}</span></td>
+      <td class="num">${edit ? `<input type="number" min="0" step="1" value="${l.price}" data-il="${i}" data-if="price" aria-label="Price for ${esc(l.sku)}">` : fmtRp(l.price)}</td>
+      <td class="num hide-sm">${edit ? `<input class="disc" type="number" min="0" max="100" step="0.5" value="${l.discPct || 0}" data-il="${i}" data-if="discPct" aria-label="Discount for ${esc(l.sku)}">` : l.discPct ? fmtN(l.discPct) + "%" : ""}</td>
+      <td class="num${draft ? " hide-sm" : ""}">${fmtRp(lineAmount(l))}</td>${edit ? `<td><button type="button" class="icon-btn" data-ildel="${i}" aria-label="Remove ${esc(l.sku)}"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></td>` : ""}</tr>`;
+  }).join("") : `<tr><td colspan="8"><div class="empty">No products yet. Add one below.</div></td></tr>`;
+  $("#invAddRow").hidden = !edit;
+  if (edit) $("#invItemList").innerHTML = Object.values(S.items).filter((it) => it.tax === inv.tax).slice(0, 5000).map((it) => `<option value="${esc(it.sku)} · ${it.tax}">${esc(it.name)}</option>`).join("");
+
+  // note
+  $("#invNote").value = draft ? invEdit.note : inv.note;
+  $("#invNote").disabled = !edit;
+  $("#invNoteWrap").hidden = !draft && !inv.note;
+
+  // totals
+  const t = draft ? invoiceTotals(lines, inv.tax, S.settings.ppnRate) : { subtotal: inv.subtotal, dppLain: inv.dppLain, ppn: inv.ppn, total: inv.total, scheme: inv.dppLain ? "dpp-lain" : inv.ppn ? "flat" : "none" };
+  const row = (l, v, cls = "") => `<div class="tr ${cls}"><span>${l}</span><span>${v}</span></div>`;
+  $("#invTotals").innerHTML = row("Subtotal (excl. PPN)", fmtRp(t.subtotal)) +
+    (t.scheme === "dpp-lain" ? row("DPP Nilai Lain (11/12)", fmtRp(t.dppLain)) + row("PPN 12%", fmtRp(t.ppn)) : t.scheme === "flat" ? row(`PPN ${S.settings.ppnRate}%`, fmtRp(t.ppn)) : "") +
+    row("Total", fmtRp(t.total), "grand") +
+    (inv.status === "issued" && inv.paid ? row("Paid", fmtRp(inv.paid)) + row("Still owed", fmtRp(invBalance(inv)), invBalance(inv) ? "owed" : "") : "") +
+    `<div class="words">${esc(terbilang(t.total))}</div>`;
+
+  // payments
+  const pays = inv.payments.map((p) => `<div class="pay"><span>${ymdLabel(p.date)}</span><span class="chip unit">${esc(p.method)}</span><span class="hint">${esc(p.note)}${p.by ? " · " + esc(p.by) : ""}</span><span class="amt">${fmtRp(p.amount)}</span>
+    <button type="button" class="icon-btn" data-pdel="${esc(p.id)}" data-need="admin" aria-label="Remove payment"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>`).join("");
+  const bal = invBalance(inv);
+  $("#invPayments").innerHTML = inv.status === "issued" ? `<div class="field"><span class="group-l">Payments</span>
+      ${pays ? `<div class="pay-list">${pays}</div>` : '<span class="hint">No payments yet.</span>'}</div>
+      ${bal && canEdit() ? `<div class="pay-form">
+        <div class="field"><label for="payAmt">Amount received</label><input id="payAmt" type="number" min="1" step="1" value="${bal}"></div>
+        <div class="field"><label for="payDate">Date</label><input id="payDate" type="date" value="${today()}"></div>
+        <div class="field"><label for="payMethod">Method</label><select id="payMethod"><option value="transfer">Bank transfer</option><option value="cash">Cash</option><option value="giro">Giro / cheque</option><option value="other">Other</option></select></div>
+        <div class="field"><label for="payNote">Reference</label><input id="payNote" placeholder="e.g. BCA ref"></div>
+        <button type="button" class="btn" id="payGo">Record payment</button></div>` : ""}` : "";
+
+  // send box
+  const cust = customerById(inv.customerId);
+  $("#invSendBox").hidden = !(invSendOpen && inv.status === "issued");
+  if (invSendOpen && inv.status === "issued") {
+    if ($("#invMsg").dataset.for !== inv.id) {
+      $("#invMsg").value = invoiceMessage({ customer: cust, inv, issuer: S.settings.issuer?.[inv.tax], balance: bal });
+      $("#invMsg").dataset.for = inv.id;
+    }
+    const chs = [cust?.whatsapp && ["whatsapp", "Send on WhatsApp"], cust?.email && ["email", "Send email"]].filter(Boolean);
+    $("#invChannels").innerHTML = chs.length ? chs.map(([c, l]) => `<button type="button" class="btn ch-${c}" data-ich="${c}">${l}</button>`).join("") + `<button type="button" class="btn" data-ich="copy">Copy message</button>`
+      : `<span class="hint">This customer has no WhatsApp or email saved.</span><button type="button" class="btn" data-ich="copy">Copy message</button>`;
+  }
+
+  // actions
+  let a = "";
+  if (draft) a = `<button type="button" class="btn ghost-danger" data-ia="delete" data-need="staff">Delete draft</button><span class="spacer"></span>
+      <button type="button" class="btn" data-ia="print">Preview</button>
+      <button type="button" class="btn" data-ia="save" data-need="staff" ${invDirty ? "" : "disabled"}>Save draft</button>
+      <button type="button" class="btn primary" data-ia="issue" data-need="staff" ${lines.length ? "" : "disabled"}>Issue invoice</button>`;
+  else if (inv.status === "issued") a = `<button type="button" class="btn ghost-danger" data-ia="void" data-need="admin">Void invoice</button><span class="spacer"></span>
+      <button type="button" class="btn" data-ia="savehead" data-need="staff">Save due date${inv.tax === "PPN" ? " / NSFP" : ""}</button>
+      <button type="button" class="btn" data-ia="send">${invSendOpen ? "Hide message" : "Send to customer"}</button>
+      <button type="button" class="btn primary" data-ia="print">Print / PDF</button>`;
+  else a = `<span class="spacer"></span><button type="button" class="btn" data-ia="print">Print</button>`;
+  $("#invActions").innerHTML = a;
+}
+function invMarkDirty() {
+  invDirty = true;
+  renderInvoiceDialog();
+}
+$("#invHead").addEventListener("change", (e) => {
+  const inv = curInv();
+  if (!inv || inv.status !== "draft") return;
+  if (e.target.id === "ivCust") invEdit.customerId = e.target.value;
+  if (e.target.id === "ivDate") {
+    // keep the same payment terms when the date moves
+    const terms = Math.round((Date.parse(invEdit.dueDate) - Date.parse(invEdit.date)) / 864e5);
+    invEdit.date = e.target.value;
+    invEdit.dueDate = addDaysYmd(e.target.value, Math.max(0, terms));
+  }
+  if (e.target.id === "ivDue") invEdit.dueDate = e.target.value;
+  invMarkDirty();
+});
+$("#invLines").addEventListener("change", (e) => {
+  const t = e.target;
+  if (t.dataset.il == null) return;
+  invEdit.lines[+t.dataset.il][t.dataset.if] = Math.max(0, +t.value || 0);
+  invMarkDirty();
+});
+$("#invLines").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-ildel]");
+  if (!b) return;
+  invEdit.lines.splice(+b.dataset.ildel, 1);
+  invMarkDirty();
+});
+$("#invNote").addEventListener("input", () => {
+  if (!invEdit) return;
+  invEdit.note = $("#invNote").value;
+  invDirty = true;
+  $("#invActions [data-ia=save]")?.removeAttribute("disabled");
+});
+$("#invAddBtn").onclick = () => {
+  const inv = curInv(), it = findItem($("#invAddItem").value), qty = +$("#invAddQty").value || 1;
+  if (!it || it.tax !== inv.tax) { $("#invErr").textContent = `Pick a ${taxLabel(inv.tax)} product from the list.`; return; }
+  $("#invErr").textContent = it.sellPrice ? "" : `${it.sku} has no sell price yet. Enter the price on the line, or set it on the product.`;
+  invEdit.lines.push({ itemKey: it.key, sku: it.sku, name: it.name, unit: it.unit, qty, price: +it.sellPrice || 0, discPct: 0 });
+  $("#invAddItem").value = "";
+  $("#invAddQty").value = "";
+  invMarkDirty();
+};
+async function saveInvDraft() {
+  await api.invSave(invId, { customerId: invEdit.customerId, date: invEdit.date, dueDate: invEdit.dueDate, note: invEdit.note,
+    lines: invEdit.lines.map((l) => ({ itemKey: l.itemKey, qty: l.qty, price: l.price, discPct: l.discPct || 0 })) });
+  invDirty = false;
+  invEdit = null;
+  await load();
+}
+function printInvoice() {
+  const inv = curInv();
+  const draft = inv.status === "draft";
+  const doc = invoiceHtml({
+    inv: draft ? { ...inv, ...invEdit, customer: customerById(invEdit.customerId) } : inv,
+    lines: draft ? invEdit.lines : inv.lines, issuer: S.settings.issuer?.[inv.tax], payments: inv.payments, ppnRate: S.settings.ppnRate,
+  });
+  const w = window.open("", "_blank");
+  if (!w) { toast("Allow pop-ups for this site to print invoices."); return; }
+  w.document.open();
+  w.document.write(doc);
+  w.document.close();
+}
+$("#invActions").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-ia]");
+  if (!b) return;
+  const inv = curInv();
+  $("#invErr").textContent = "";
+  try {
+    switch (b.dataset.ia) {
+      case "print": return printInvoice();
+      case "save": await saveInvDraft(); toast("Draft saved"); break;
+      case "delete":
+        if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = "Confirm: delete draft"; return; }
+        await api.invDelete(invId); invDirty = false; $("#invDlg").close(); toast("Draft deleted"); await load(); break;
+      case "issue": {
+        if (invEdit.lines.some((l) => !(+l.price))) { $("#invErr").textContent = "Every line needs a price before issuing."; return; }
+        if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = "Confirm: issue and take items out of stock"; return; }
+        b.disabled = true;
+        if (invDirty) await saveInvDraft();
+        const r = await api.invIssue(invId);
+        toast(`Invoice ${r.number} issued: ${fmtRp(r.total)}. Stock updated.`);
+        await load();
+        break;
+      }
+      case "savehead": {
+        const body = { dueDate: $("#ivDue").value };
+        if ($("#ivNsfp")) body.nsfp = $("#ivNsfp").value;
+        await api.invSave(invId, body); toast("Saved"); await load(); break;
+      }
+      case "send": invSendOpen = !invSendOpen; renderInvoiceDialog(); break;
+      case "void": {
+        if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = "Confirm void…"; return; }
+        const reason = prompt(`Why is ${inv.number} being voided? (kept with the invoice)`);
+        if (!reason) { b.dataset.confirm = ""; b.textContent = "Void invoice"; return; }
+        await api.invVoid(invId, reason); toast(`${inv.number} voided. Stock was put back.`); await load(); break;
+      }
+    }
+  } catch (er) { $("#invErr").textContent = er.message; b.disabled = false; }
+});
+$("#invPayments").addEventListener("click", async (e) => {
+  const inv = curInv();
+  try {
+    if (e.target.closest("#payGo")) {
+      await api.invPay(invId, { amount: $("#payAmt").value, date: $("#payDate").value, method: $("#payMethod").value, note: $("#payNote").value });
+      toast(`Payment recorded on ${inv.number}`);
+      await load();
+    }
+    const d = e.target.closest("[data-pdel]");
+    if (d) {
+      if (d.dataset.confirm !== "1") { d.dataset.confirm = "1"; d.title = "Click again to remove"; d.style.color = "var(--crit)"; return; }
+      await api.invDeletePay(invId, d.dataset.pdel); toast("Payment removed"); await load();
+    }
+  } catch (er) { $("#invErr").textContent = er.message; }
+});
+$("#invChannels").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-ich]");
+  if (!b) return;
+  const inv = curInv(), cust = customerById(inv.customerId), msg = $("#invMsg").value;
+  if (b.dataset.ich === "whatsapp") window.open(whatsappUrl(cust.whatsapp, msg), "_blank", "noopener");
+  else if (b.dataset.ich === "email") location.href = mailtoUrl(cust.email, `Invoice ${inv.number}`, msg);
+  else copyText(msg, "Message");
+});
+$("#invClose").onclick = () => {
+  if (invDirty && !confirm("Discard your unsaved changes to this invoice?")) return;
+  $("#invDlg").close();
+};
+$("#invDlg").addEventListener("cancel", (e) => { if (invDirty && !confirm("Discard your unsaved changes to this invoice?")) e.preventDefault(); });
+$("#invDlg").addEventListener("close", () => { invDirty = false; invId = null; $("#invMsg").dataset.for = ""; });
+
+/* invoice settings */
+function fillInvoicing() {
+  $("#stTerms").value = S.settings.invoiceTerms ?? 30;
+  $("#issuerForm").innerHTML = ["PPN", "NON"].map((t) => {
+    const x = S.settings.issuer?.[t] || {};
+    const f = (k, label, ph = "", area = false) => `<div class="field"><label for="is${t}${k}">${label}</label>${area ? `<textarea id="is${t}${k}" rows="2" placeholder="${ph}">${esc(x[k] || "")}</textarea>` : `<input id="is${t}${k}" value="${esc(x[k] || "")}" placeholder="${ph}">`}</div>`;
+    return `<div class="issuer"><strong>${t === "PPN" ? "PPN invoices" : "Non-PPN invoices"}</strong>
+      ${f("name", "Company name", t === "PPN" ? "e.g. CV Hashiru" : "")}${f("address", "Address", "", true)}${f("phone", "Telephone")}${f("npwp", "NPWP")}
+      ${f("bank", "Bank account for payment", "e.g. BCA 123-456-7890 a.n. CV Hashiru", true)}${f("footer", "Footer text", "e.g. Barang yang sudah dibeli tidak dapat dikembalikan")}</div>`;
+  }).join("");
+}
+$("#stInvSave").onclick = async () => {
+  const issuer = {};
+  for (const t of ["PPN", "NON"]) issuer[t] = Object.fromEntries(["name", "address", "phone", "npwp", "bank", "footer"].map((k) => [k, $(`#is${t}${k}`).value]));
+  try {
+    await api.saveInvoicing({ invoiceTerms: $("#stTerms").value, issuer });
+    $("#stInvMsg").className = "okmsg";
+    $("#stInvMsg").textContent = "Saved";
+    S.loaded = false;
+    scheduleReload();
+  } catch (e) { $("#stInvMsg").className = "err"; $("#stInvMsg").textContent = e.message; }
+};
 
 /* ---------- users (admin) ---------- */
 async function loadUsers() {

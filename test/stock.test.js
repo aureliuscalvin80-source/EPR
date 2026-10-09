@@ -101,3 +101,14 @@ test("stock on sent purchase orders counts toward the reorder decision", () => {
   assert.equal(withPo.suggested_order, 54, "orders up to 114 from a position of 60");
   assert.equal(baseVars(it, new Map(), ds, s, 100).suggested_order, 0, "enough on order: nothing to suggest");
 });
+
+test("invoices count as sales for months without an uploaded report; reports win where both exist", () => {
+  const hist = salesHist(["2025-01", "2025-02"]);
+  const dem = { "PPN~A": { m: { "2025-01": 10, "2025-02": 10 }, s: {} } };
+  const inv = { dem: { "PPN~A": { m: { "2025-02": 999, "2025-03": 40, "2025-04": 40 } } }, months: { PPN: ["2025-02", "2025-03", "2025-04"], NON: [] } };
+  const { stats, win } = demandStats({ [it.key]: it }, dem, hist, DEFAULT_SETTINGS, inv);
+  assert.deepEqual(win.PPN, ["2025-04", "2025-03", "2025-02", "2025-01"]);
+  const d = stats.get(it.key);
+  assert.equal(d.n, 4);
+  assert.equal(d.mean, 25, "Feb uses the report (10), not the invoices (999)");
+});

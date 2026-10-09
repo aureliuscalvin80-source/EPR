@@ -308,6 +308,34 @@ body.role-viewer [data-need="staff"], body.role-viewer [data-need="admin"], body
 .sm-only { display: none; }
 .qty-on { font-size: 11px; color: var(--accent); font-weight: 600; margin-left: 4px; }
 
+/* ---------- invoices ---------- */
+#invTblList tbody tr, #custTbl tbody tr { cursor: pointer; }
+#invTblList tbody tr:hover, #custTbl tbody tr:hover { background: var(--hover); }
+.chip.ist-draft { background: var(--subtle); color: var(--fg-2); border: 1px solid var(--line-strong); }
+.chip.ist-unpaid { background: var(--accent-soft); color: var(--accent); }
+.chip.ist-partial { background: var(--warn-soft); color: var(--warn); }
+.chip.ist-overdue { background: var(--crit-soft); color: var(--crit); }
+.chip.ist-paid { background: var(--non-soft); color: var(--non); }
+.chip.ist-void { background: var(--subtle); color: var(--muted); text-decoration: line-through; }
+#invLines input { width: 92px; padding: 6px 8px; text-align: right; }
+#invLines input.disc { width: 64px; }
+#invLines td.short { color: var(--crit); font-weight: 600; }
+.inv-bottom { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+.inv-left { flex: 1 1 320px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.totals { flex: 0 1 340px; min-width: 260px; border: 1px solid var(--line); border-radius: var(--r); padding: 14px 16px; background: var(--subtle); display: flex; flex-direction: column; gap: 6px; font-variant-numeric: tabular-nums; }
+.totals .tr { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--fg-2); }
+.totals .tr.grand { font-size: 17px; font-weight: 700; color: var(--fg); border-top: 1px solid var(--line-strong); padding-top: 8px; margin-top: 2px; }
+.totals .tr.owed { font-weight: 700; color: var(--crit); }
+.totals .words { font-size: 12px; color: var(--muted); font-style: italic; }
+.pay-list { display: flex; flex-direction: column; gap: 6px; }
+.pay { display: flex; gap: 10px; align-items: center; font-size: 13px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); }
+.pay .amt { font-weight: 600; margin-left: auto; font-variant-numeric: tabular-nums; }
+.pay-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
+.pay-form .field { flex: 1 1 120px; }
+.warnbox { background: var(--crit-soft); border-color: #f8dede; color: var(--crit); }
+.grid2.tight { gap: 14px; }
+.issuer { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid var(--line); border-radius: var(--r); background: var(--subtle); }
+
 /* ---------- dialogs & toast ---------- */
 dialog { border: 0; border-radius: 20px; background: var(--surface); color: var(--fg); padding: 0; width: min(580px, calc(100vw - 32px)); max-height: calc(100vh - 48px); box-shadow: var(--shadow-lg); }
 dialog.wide { width: min(980px, calc(100vw - 32px)); }
@@ -344,8 +372,12 @@ dialog::backdrop { background: rgba(30, 36, 51, 0.28); backdrop-filter: blur(3px
   .alert-item .side { min-width: 0; flex-basis: 100%; }
   .alert-item .acts { flex-direction: row; }
   .hide-sm, #poLines tfoot { display: none; }
+  .totals { flex-basis: 100%; }
   .sm-only { display: block; }
-  #poLines th, #poLines td { padding: 9px 8px; white-space: normal; }
+  #poLines th, #poLines td, #invLines th, #invLines td { padding: 9px 6px; white-space: normal; }
+  #invLines td.name { min-width: 0; }
+  #invLines input { width: 92px; }
+  #invLines input.q { width: 52px; }
   #poLines td.name { min-width: 0; }
   #poLines input { width: 72px; }
   .side-foot { position: absolute; top: 12px; right: 16px; flex-direction: row; align-items: center; }

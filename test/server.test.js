@@ -175,6 +175,78 @@ test("purchase orders: draft, merge, send, partial receipt, close", async () => 
   assert.equal((await call("POST", `/api/pos/${a.id}/receive`, { lines: [{ id: l2.id, qty: 1 }] })).status, 409);
 });
 
+test("invoices: draft, ledger check, stock check, issue, numbering, payments, void", async () => {
+  let r = await call("POST", "/api/customers", { name: "PT Pelanggan", npwp: "123" });
+  assert.equal(r.status, 400, "NPWP must be 15 or 16 digits");
+  const cid = (await call("POST", "/api/customers", { name: "PT Pelanggan", contact: "Pak Budi", npwp: "01.234.567.8-901.000", address: "Jl. Raya 1" })).body.id;
+  await call("POST", "/api/items", { sku: "I1", tax: "PPN", name: "Item one", qty: 10, price: 700, sellPrice: 1000 });
+  await call("POST", "/api/items", { sku: "N1", tax: "NON", name: "Non item", qty: 5, price: 50, sellPrice: 80 });
+
+  const inv = (await call("POST", "/api/invoices", { tax: "PPN", customerId: cid })).body.id;
+  r = await call("PUT", `/api/invoices/${inv}`, { lines: [{ itemKey: "NON~N1", qty: 1, price: 80 }] });
+  assert.equal(r.status, 400, "Non-PPN item can't go on a PPN invoice");
+  assert.equal((await call("PUT", `/api/invoices/${inv}`, { lines: [{ itemKey: "PPN~I1", qty: 11, price: 1000 }] })).status, 200);
+  r = await call("POST", `/api/invoices/${inv}/issue`);
+  assert.equal(r.status, 409);
+  assert.match(r.body.error, /Not enough stock: I1 \(need 11, have 10\)/);
+  await call("PUT", `/api/invoices/${inv}`, { lines: [{ itemKey: "PPN~I1", qty: 4, price: 250000, discPct: 0 }], note: "Thanks" });
+  r = await call("POST", `/api/invoices/${inv}/issue`);
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.match(r.body.number, /^INV\/P\/\d{4}\/0001$/);
+  assert.equal(r.body.total, 1109999);
+
+  let st = (await call("GET", "/api/state")).body;
+  assert.equal(st.items["PPN~I1"].qty, 6, "stock went down");
+  const mv = st.moves.find((m) => m.sku === "I1" && m.type === "OUT");
+  assert.match(mv.note, /Invoice INV\/P\//);
+  let i = st.invoices.find((x) => x.id === inv);
+  assert.equal(i.status, "issued");
+  assert.equal(i.custName, "PT Pelanggan");
+  assert.equal(i.ppn, 109999);
+
+  // issued: lines locked, but e-Faktur number can be added
+  assert.equal((await call("PUT", `/api/invoices/${inv}`, { nsfp: "04002600000001", lines: [] })).status, 200);
+  st = (await call("GET", "/api/state")).body;
+  i = st.invoices.find((x) => x.id === inv);
+  assert.equal(i.nsfp, "04002600000001");
+  assert.equal(i.lines.length, 1, "lines unchanged");
+
+  // payments
+  assert.equal((await call("POST", `/api/invoices/${inv}/payments`, { amount: 2000000 })).status, 400, "can't overpay");
+  assert.equal((await call("POST", `/api/invoices/${inv}/payments`, { amount: 1000000, method: "transfer" })).body.balance, 109999);
+  assert.equal((await call("POST", `/api/invoices/${inv}/void`, { reason: "x" })).status, 409, "can't void with payments");
+  st = (await call("GET", "/api/state")).body;
+  const pay = st.invoices.find((x) => x.id === inv).payments[0];
+  assert.equal(pay.by, "Admin");
+  assert.equal((await call("DELETE", `/api/invoices/${inv}/payments/${pay.id}`)).status, 200);
+  assert.equal((await call("POST", `/api/invoices/${inv}/void`, {})).status, 400, "void needs a reason");
+  assert.equal((await call("POST", `/api/invoices/${inv}/void`, { reason: "Wrong customer" })).status, 200);
+  st = (await call("GET", "/api/state")).body;
+  assert.equal(st.items["PPN~I1"].qty, 10, "stock came back");
+  assert.equal(st.invoices.find((x) => x.id === inv).status, "void");
+
+  // next PPN invoice continues the numbering; Non-PPN has its own
+  const inv2 = (await call("POST", "/api/invoices", { tax: "PPN", customerId: cid })).body.id;
+  await call("PUT", `/api/invoices/${inv2}`, { lines: [{ itemKey: "PPN~I1", qty: 1, price: 1000 }] });
+  assert.match((await call("POST", `/api/invoices/${inv2}/issue`)).body.number, /\/0002$/);
+  const inv3 = (await call("POST", "/api/invoices", { tax: "NON", customerId: cid })).body.id;
+  await call("PUT", `/api/invoices/${inv3}`, { lines: [{ itemKey: "NON~N1", qty: 1, price: 80 }] });
+  r = await call("POST", `/api/invoices/${inv3}/issue`);
+  assert.match(r.body.number, /^INV\/N\/\d{4}\/0001$/);
+  assert.equal(r.body.total, 80, "no PPN on Non-PPN");
+  assert.equal((await call("DELETE", `/api/invoices/${inv3}`)).status, 409, "issued invoices can't be deleted");
+  assert.equal((await call("DELETE", `/api/customers/${cid}`)).status, 409, "customer with invoices can't be deleted");
+});
+
+test("settings: saving the stock model keeps the invoice letterhead", async () => {
+  await call("PUT", "/api/settings/invoicing", { invoiceTerms: 14, issuer: { PPN: { name: "CV Hashiru", npwp: "0123" }, NON: { name: "Amasan" } } });
+  await call("PUT", "/api/settings", { ppnRate: 11, leadTime: 30, priceMode: "excl", reviewDays: 30, serviceLevel: 95, windowMonths: 12 });
+  const s = (await call("GET", "/api/state")).body.settings;
+  assert.equal(s.issuer.PPN.name, "CV Hashiru");
+  assert.equal(s.invoiceTerms, 14);
+  assert.equal(s.leadTime, 30);
+});
+
 test("unknown API routes return JSON 404", async () => {
   assert.equal((await call("GET", "/api/nope")).status, 404);
 });

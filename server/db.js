@@ -146,12 +146,78 @@ CREATE TABLE IF NOT EXISTS po_lines (
   pos      INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS po_lines_po ON po_lines (po_id);
+CREATE TABLE IF NOT EXISTS customers (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  contact    TEXT NOT NULL DEFAULT '',
+  phone      TEXT NOT NULL DEFAULT '',
+  whatsapp   TEXT NOT NULL DEFAULT '',
+  email      TEXT NOT NULL DEFAULT '',
+  address    TEXT NOT NULL DEFAULT '',
+  npwp       TEXT NOT NULL DEFAULT '',
+  notes      TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+-- A sales invoice belongs to one ledger (PPN or Non-PPN). The number is given when it is issued;
+-- customer details and totals are copied in at that moment so the issued document never changes.
+CREATE TABLE IF NOT EXISTS invoices (
+  id           TEXT PRIMARY KEY,
+  number       TEXT UNIQUE,
+  tax          TEXT NOT NULL CHECK (tax IN ('PPN','NON')),
+  customer_id  TEXT NOT NULL,
+  status       TEXT NOT NULL CHECK (status IN ('draft','issued','void')),
+  inv_date     TEXT NOT NULL,
+  due_date     TEXT NOT NULL,
+  note         TEXT NOT NULL DEFAULT '',
+  nsfp         TEXT NOT NULL DEFAULT '',
+  cust_name    TEXT NOT NULL DEFAULT '',
+  cust_address TEXT NOT NULL DEFAULT '',
+  cust_npwp    TEXT NOT NULL DEFAULT '',
+  subtotal     REAL NOT NULL DEFAULT 0,
+  dpp_lain     REAL NOT NULL DEFAULT 0,
+  ppn          REAL NOT NULL DEFAULT 0,
+  total        REAL NOT NULL DEFAULT 0,
+  created_by   TEXT NOT NULL DEFAULT '',
+  issued_by    TEXT NOT NULL DEFAULT '',
+  issued_at    INTEGER,
+  voided_at    INTEGER,
+  void_reason  TEXT NOT NULL DEFAULT '',
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS invoices_customer ON invoices (customer_id);
+CREATE TABLE IF NOT EXISTS invoice_lines (
+  id         TEXT PRIMARY KEY,
+  invoice_id TEXT NOT NULL,
+  item_key   TEXT NOT NULL,
+  sku        TEXT NOT NULL,
+  name       TEXT NOT NULL,
+  unit       TEXT NOT NULL,
+  qty        REAL NOT NULL,
+  price      REAL NOT NULL,
+  disc_pct   REAL NOT NULL DEFAULT 0,
+  pos        INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS invoice_lines_inv ON invoice_lines (invoice_id);
+CREATE TABLE IF NOT EXISTS invoice_payments (
+  id         TEXT PRIMARY KEY,
+  invoice_id TEXT NOT NULL,
+  pay_date   TEXT NOT NULL,
+  amount     REAL NOT NULL,
+  method     TEXT NOT NULL,
+  note       TEXT NOT NULL DEFAULT '',
+  created_by TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS invoice_payments_inv ON invoice_payments (invoice_id);
 `;
 
 /** Columns added after the first release; ALTER them into databases created before. */
 const MIGRATIONS = [
   ["items", "supplier_id", "TEXT"],
   ["moves", "user_name", "TEXT NOT NULL DEFAULT ''"],
+  ["items", "sell_price", "REAL NOT NULL DEFAULT 0"],
 ];
 
 // Starter formulas that predate purchase orders: count stock already on order, so items on an open PO stop alerting.

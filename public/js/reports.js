@@ -95,7 +95,8 @@ const HMAP = {
   name: ["name", "nama", "nama barang", "product", "product name", "description", "deskripsi"],
   unit: ["unit", "satuan", "uom"],
   qty: ["qty", "quantity", "stok", "stock", "jumlah", "kuantitas"],
-  price: ["price", "harga", "harga beli", "harga jual", "unit price"],
+  price: ["price", "harga", "harga beli", "unit price", "cost"],
+  sellPrice: ["sell price", "selling price", "harga jual"],
   tax: ["tax", "ppn", "pajak", "ledger"],
   minStock: ["min", "min stock", "minimum", "stok minimum"],
 };
@@ -314,7 +315,9 @@ export function readProductList(raw, defTax) {
       tax = /NON|TIDAK|NO|^0$|^N$/.test(t) ? "NON" : /PPN|YA|YES|^1$|^Y$/.test(t) ? "PPN" : defTax;
     }
     const u = String(o.unit ?? "").trim().toUpperCase();
-    rows.push({ sku, name: String(o.name ?? "").trim(), unit: /SET|STEL|SETEL/.test(u) ? "SET" : "PCS", qty: toNum(o.qty), price: toNum(o.price), tax, minStock: toNum(o.minStock) });
+    const row = { sku, name: String(o.name ?? "").trim(), unit: /SET|STEL|SETEL/.test(u) ? "SET" : "PCS", qty: toNum(o.qty), price: toNum(o.price), tax, minStock: toNum(o.minStock) };
+    if (map.includes("sellPrice")) row.sellPrice = toNum(o.sellPrice);
+    rows.push(row);
   }
   const dedup = new Map(rows.map((r) => [r.tax + "~" + r.sku, r]));
   return { rows: [...dedup.values()], skipped, merged: rows.length - dedup.size, columns: map.filter(Boolean) };

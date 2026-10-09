@@ -8,6 +8,7 @@ import { HttpError } from "./http.js";
 import { applyReports } from "./reports.js";
 import { createAuth, makeSetupCode } from "./auth.js";
 import { createPurchasing, listPos, supplierHasPos } from "./purchasing.js";
+import { createSales, listCustomers, listInvoices, invoiceDemand } from "./sales.js";
 import { str, numIn, oneOf, itemFields, ruleFields, supplierFields } from "./validate.js";
 import { DEFAULT_SETTINGS } from "../public/js/stock.js";
 import { keyOf } from "../public/js/util.js";
@@ -19,7 +20,7 @@ const MAX_UPLOAD = 15 * 1024 * 1024;
 const MOVE_DAYS = 31;
 
 // ---------- row → API shape ----------
-const itemOut = (r) => ({ key: r.key, sku: r.sku, tax: r.tax, name: r.name, unit: r.unit, qty: r.qty, price: r.price, minStock: r.min_stock, supplierId: r.supplier_id || "", updatedAt: r.updated_at });
+const itemOut = (r) => ({ key: r.key, sku: r.sku, tax: r.tax, name: r.name, unit: r.unit, qty: r.qty, price: r.price, minStock: r.min_stock, sellPrice: r.sell_price, supplierId: r.supplier_id || "", updatedAt: r.updated_at });
 const supplierOut = (r) => ({ id: r.id, company: r.company, contact: r.contact, wechat: r.wechat, whatsapp: r.whatsapp, email: r.email, phone: r.phone, preferred: r.preferred, notes: r.notes });
 const ruleOut = (r) => ({ id: r.id, name: r.name, kind: r.kind, scope: r.scope, severity: r.severity, expr: r.expr, enabled: !!r.enabled, createdAt: r.created_at });
 const histOut = (r) => ({ id: r.id, fileId: r.file_id, file: r.file, kind: r.kind, tax: r.tax, ym: r.ym, check: r.status, msg: r.msg, lines: r.lines, skus: r.skus, qty: r.qty, rp: r.rp, otherUnits: r.other_units });
@@ -82,6 +83,14 @@ export function createApp({ dataDir, setupCode = makeSetupCode(), secureCookies 
     }
   };
 
+  const DEFAULT_ISSUER = { name: "", address: "", phone: "", npwp: "", bank: "", footer: "" };
+  const getSettings = () => {
+    const s = { ...DEFAULT_SETTINGS, invoiceTerms: 30, ...JSON.parse(db.prepare("SELECT json FROM settings WHERE id = 1").get().json) };
+    s.issuer = { PPN: { ...DEFAULT_ISSUER, ...s.issuer?.PPN }, NON: { ...DEFAULT_ISSUER, ...s.issuer?.NON } };
+    return s;
+  };
+  const saveSettings = (patch) => db.prepare("UPDATE settings SET json = ? WHERE id = 1").run(JSON.stringify({ ...getSettings(), ...patch }));
+
   // ---------- state ----------
   app.get("/api/state", (req, res) => {
     const items = {};
@@ -100,11 +109,14 @@ export function createApp({ dataDir, setupCode = makeSetupCode(), secureCookies 
       rules: db.prepare("SELECT * FROM rules ORDER BY created_at").all().map(ruleOut),
       suppliers: db.prepare("SELECT * FROM suppliers ORDER BY company COLLATE NOCASE").all().map(supplierOut),
       pos: listPos(db),
+      customers: listCustomers(db),
+      invoices: listInvoices(db),
+      invDem: invoiceDemand(db),
       files,
       history: db.prepare("SELECT * FROM history").all().map(histOut),
       moves: db.prepare("SELECT * FROM moves WHERE t >= ? ORDER BY t DESC").all(Date.now() - MOVE_DAYS * 864e5)
         .map((m) => ({ id: m.id, t: m.t, key: m.key, sku: m.sku, tax: m.tax, type: m.type, qty: m.qty, note: m.note, by: m.user_name })),
-      settings: { ...DEFAULT_SETTINGS, ...JSON.parse(db.prepare("SELECT json FROM settings WHERE id = 1").get().json) },
+      settings: getSettings(),
       usage: { bytes: files.reduce((a, f) => a + f.size, 0) },
     });
   });
@@ -134,8 +146,8 @@ export function createApp({ dataDir, setupCode = makeSetupCode(), secureCookies 
     const key = keyOf(tax, sku);
     if (db.prepare("SELECT 1 FROM items WHERE key = ?").get(key))
       throw new HttpError(409, `${sku} already exists in the ${tax === "PPN" ? "PPN" : "Non-PPN"} ledger. Edit that one instead.`);
-    db.prepare("INSERT INTO items (key, sku, tax, name, unit, qty, price, min_stock, supplier_id, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(key, sku, tax, f.name, f.unit, f.qty, f.price, f.minStock, supplierIdIn(req.body.supplierId), Date.now());
+    db.prepare("INSERT INTO items (key, sku, tax, name, unit, qty, price, min_stock, sell_price, supplier_id, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(key, sku, tax, f.name, f.unit, f.qty, f.price, f.minStock, f.sellPrice, supplierIdIn(req.body.supplierId), Date.now());
     return { key };
   }));
 
@@ -145,8 +157,8 @@ export function createApp({ dataDir, setupCode = makeSetupCode(), secureCookies 
     const supplierId = supplierIdIn(req.body.supplierId);
     tx(db, () => {
       const prev = getItem(req.params.key);
-      db.prepare("UPDATE items SET name = ?, unit = ?, qty = ?, price = ?, min_stock = ?, supplier_id = ?, updated_at = ? WHERE key = ?")
-        .run(f.name, f.unit, f.qty, f.price, f.minStock, supplierId, Date.now(), prev.key);
+      db.prepare("UPDATE items SET name = ?, unit = ?, qty = ?, price = ?, min_stock = ?, sell_price = ?, supplier_id = ?, updated_at = ? WHERE key = ?")
+        .run(f.name, f.unit, f.qty, f.price, f.minStock, f.sellPrice, supplierId, Date.now(), prev.key);
       if (prev.qty !== f.qty) addMove(prev, "ADJ", f.qty - prev.qty, "Edited in product form", req.user);
     });
   }));
@@ -159,9 +171,11 @@ export function createApp({ dataDir, setupCode = makeSetupCode(), secureCookies 
     const rows = req.body.rows;
     if (!Array.isArray(rows) || !rows.length) throw new HttpError(400, "No rows to import.");
     const now = Date.now();
-    const up = db.prepare(`INSERT INTO items (key, sku, tax, name, unit, qty, price, min_stock, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    // Sell price is only overwritten when the file has a sell-price column.
+    const upsert = (withSell) => db.prepare(`INSERT INTO items (key, sku, tax, name, unit, qty, price, min_stock, sell_price, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT (key) DO UPDATE SET name = excluded.name, unit = excluded.unit, qty = excluded.qty, price = excluded.price,
-        min_stock = excluded.min_stock, updated_at = excluded.updated_at`);
+        min_stock = excluded.min_stock,${withSell ? " sell_price = excluded.sell_price," : ""} updated_at = excluded.updated_at`);
+    const upWith = upsert(true), upWithout = upsert(false);
     let n = 0;
     tx(db, () => {
       for (const r of rows) {
@@ -169,7 +183,8 @@ export function createApp({ dataDir, setupCode = makeSetupCode(), secureCookies 
         if (!sku || sku.includes("~")) continue;
         const tax = oneOf(r.tax, ["PPN", "NON"], "Ledger");
         const f = itemFields(r);
-        up.run(keyOf(tax, sku), sku, tax, f.name, f.unit, f.qty, f.price, f.minStock, now);
+        const hasSell = r.sellPrice !== undefined && r.sellPrice !== null && r.sellPrice !== "";
+        (hasSell ? upWith : upWithout).run(keyOf(tax, sku), sku, tax, f.name, f.unit, f.qty, f.price, f.minStock, f.sellPrice, now);
         n++;
       }
     });
@@ -181,6 +196,10 @@ export function createApp({ dataDir, setupCode = makeSetupCode(), secureCookies 
       const removed = db.prepare("DELETE FROM items WHERE sku LIKE 'DEMO-%'").run().changes;
       db.prepare("DELETE FROM moves WHERE sku LIKE 'DEMO-%'").run();
       const demoSuppliers = "SELECT id FROM suppliers WHERE company LIKE '[Demo]%'";
+      db.prepare("DELETE FROM invoice_lines WHERE invoice_id IN (SELECT id FROM invoices WHERE customer_id IN (SELECT id FROM customers WHERE name LIKE '[Demo]%'))").run();
+      db.prepare("DELETE FROM invoice_payments WHERE invoice_id IN (SELECT id FROM invoices WHERE customer_id IN (SELECT id FROM customers WHERE name LIKE '[Demo]%'))").run();
+      db.prepare("DELETE FROM invoices WHERE customer_id IN (SELECT id FROM customers WHERE name LIKE '[Demo]%')").run();
+      db.prepare("DELETE FROM customers WHERE name LIKE '[Demo]%'").run();
       db.prepare(`DELETE FROM po_lines WHERE po_id IN (SELECT id FROM purchase_orders WHERE supplier_id IN (${demoSuppliers}))`).run();
       db.prepare(`DELETE FROM purchase_orders WHERE supplier_id IN (${demoSuppliers})`).run();
       db.prepare(`UPDATE items SET supplier_id = NULL WHERE supplier_id IN (${demoSuppliers})`).run();
@@ -268,7 +287,7 @@ export function createApp({ dataDir, setupCode = makeSetupCode(), secureCookies 
       serviceLevel: Math.min(99.9, Math.max(50, Number(b.serviceLevel) || 95)),
       windowMonths: Math.min(60, Math.max(3, Math.round(Number(b.windowMonths) || 12))),
     };
-    db.prepare("UPDATE settings SET json = ? WHERE id = 1").run(JSON.stringify(s));
+    saveSettings(s); // merged, so invoice settings are kept
     return s;
   }));
 
@@ -308,6 +327,22 @@ export function createApp({ dataDir, setupCode = makeSetupCode(), secureCookies 
     });
     fs.rmSync(filePath(f.id), { force: true });
   }));
+
+  // Invoice letterhead per ledger, and default payment terms.
+  app.put("/api/settings/invoicing", need("admin"), json, write((req) => {
+    const issuer = {};
+    for (const t of ["PPN", "NON"]) {
+      const b = req.body.issuer?.[t] || {};
+      issuer[t] = { name: str(b.name, 200), address: str(b.address, 1000), phone: str(b.phone, 60), npwp: str(b.npwp, 40), bank: str(b.bank, 500), footer: str(b.footer, 500) };
+    }
+    const invoiceTerms = Math.min(365, Math.max(0, Math.round(numIn(req.body.invoiceTerms, "Payment terms", { min: 0 }))));
+    saveSettings({ issuer, invoiceTerms });
+  }));
+
+  // ---------- sales: customers and invoices ----------
+  const sales = createSales(db, { need, write, addMove, getSettings });
+  app.use("/api/customers", sales.customers);
+  app.use("/api/invoices", sales.invoices);
 
   // ---------- purchase orders ----------
   app.use("/api/pos", createPurchasing(db, { need, write, addMove }));

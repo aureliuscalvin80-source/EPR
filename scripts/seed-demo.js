@@ -26,17 +26,23 @@ tx(db, () => {
   db.prepare("DELETE FROM suppliers WHERE company LIKE '[Demo]%'").run();
   const sup = db.prepare("INSERT INTO suppliers (id, company, contact, wechat, whatsapp, email, phone, preferred, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, '', ?, '', ?, ?)");
   for (const x of suppliers) sup.run(x.id, x.company, x.contact, x.wechat || "", x.whatsapp || "", x.email, x.preferred, now, now);
-  const ins = db.prepare(`INSERT INTO items (key, sku, tax, name, unit, qty, price, min_stock, supplier_id, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  db.prepare("DELETE FROM customers WHERE name LIKE '[Demo]%' AND id NOT IN (SELECT customer_id FROM invoices)").run();
+  if (!db.prepare("SELECT 1 FROM customers WHERE name LIKE '[Demo]%'").get()) {
+    db.prepare("INSERT INTO customers (id, name, contact, phone, whatsapp, email, address, npwp, notes, created_at, updated_at) VALUES (?, ?, ?, '', ?, ?, ?, ?, '', ?, ?)")
+      .run(randomUUID(), "[Demo] Bengkel Maju Motor", "Pak Andi", "0813 2222 3333", "andi@example.com", "Jl. Merdeka 45\nBandung", "0123456789012345", now, now);
+  }
+  const ins = db.prepare(`INSERT INTO items (key, sku, tax, name, unit, qty, price, min_stock, supplier_id, sell_price, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT (key) DO UPDATE SET name = excluded.name, unit = excluded.unit, qty = excluded.qty, price = excluded.price, min_stock = excluded.min_stock,
-      supplier_id = excluded.supplier_id`);
+      supplier_id = excluded.supplier_id, sell_price = excluded.sell_price`);
   const mv = db.prepare("INSERT INTO moves (t, key, sku, tax, type, qty, note) VALUES (?, ?, ?, ?, ?, ?, ?)");
   items.forEach(([sku, tax, name, unit, qty, price, min], i) => {
     const key = keyOf(tax, sku);
     // The last product is left without a supplier to show the "assign a supplier" path.
-    ins.run(key, sku, tax, name, unit, qty, price, min, i === items.length - 1 ? null : suppliers[i % 2].id, now);
+    // Demo sell price: purchase price plus 30 %, rounded to Rp 500.
+    ins.run(key, sku, tax, name, unit, qty, price, min, i === items.length - 1 ? null : suppliers[i % 2].id, Math.round((price * 1.3) / 500) * 500, now);
     mv.run(now - (i + 2) * 864e5, key, sku, tax, "IN", 10, "Demo receipt");
     mv.run(now - (i + 1) * 3600e3, key, sku, tax, "OUT", -(i % 4 + 1), "Demo sale");
   });
 });
 db.close();
-console.log(`Seeded ${items.length} demo products and ${suppliers.length} demo suppliers.`);
+console.log(`Seeded ${items.length} demo products, ${suppliers.length} demo suppliers and a demo customer.`);

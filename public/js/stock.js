@@ -69,25 +69,30 @@ export function coverage(hist) {
  * dem[key] = { m: { "2025-01": pcsSold, "2025-01S": setsSold }, s: { "2025-01": 1 if in stock at month end } }
  * Months where stock was zero at both the start and the end are left out: sales were blocked, not low.
  */
-export function demandStats(items, dem, hist, settings) {
+export function demandStats(items, dem, hist, settings, inv = { dem: {}, months: { PPN: [], NON: [] } }) {
   const stats = new Map();
   const N = Math.max(3, +settings.windowMonths || 12);
   const cov = coverage(hist);
   const win = { PPN: [], NON: [] };
+  // A month counts if it has an uploaded sales report or issued invoices. Where both exist, the report wins
+  // (it is the complete record for that month), so sales are never counted twice.
+  const invMonths = { PPN: new Set(inv.months?.PPN || []), NON: new Set(inv.months?.NON || []) };
+  const hasMonth = (t, y) => cov[t].s.has(y) || invMonths[t].has(y);
   for (const t of ["PPN", "NON"]) {
-    const ys = [...cov[t].s.keys()].sort();
+    const ys = [...new Set([...cov[t].s.keys(), ...invMonths[t]])].sort();
     if (!ys.length) continue;
     const last = ys[ys.length - 1];
     for (let i = 0; i < N; i++) {
       const y = ymAdd(last, -i);
-      if (cov[t].s.has(y)) win[t].push(y);
+      if (hasMonth(t, y)) win[t].push(y);
     }
   }
   for (const it of Object.values(items)) {
     const w = win[it.tax] || [];
     if (!w.length) { stats.set(it.key, null); continue; }
     const rec = dem[it.key] || {};
-    const m = rec.m || {};
+    const fromReports = rec.m || {};
+    const fromInvoices = inv.dem?.[it.key]?.m || {};
     const s = rec.s || {};
     const st = cov[it.tax].k;
     const suf = it.unit === "SET" ? "S" : "";
@@ -97,6 +102,7 @@ export function demandStats(items, dem, hist, settings) {
     let so = 0;
     let mixed = 0;
     for (const y of w) {
+      const m = cov[it.tax].s.has(y) ? fromReports : fromInvoices;
       const v = +m[y + suf] || 0;
       all.push(v);
       if (+m[y + oth] > 0) mixed = 1;
@@ -179,11 +185,11 @@ export function onOrderByItem(pos) {
   return m;
 }
 
-export function evaluate({ items, rules, moves, dem, hist, settings, pos = [], now = Date.now() }) {
+export function evaluate({ items, rules, moves, dem, hist, settings, pos = [], invDem, now = Date.now() }) {
   compileRules(rules);
   const ms = moveStats(moves, now);
   const onOrder = onOrderByItem(pos);
-  const { stats: dstats, win } = demandStats(items, dem, hist, settings);
+  const { stats: dstats, win } = demandStats(items, dem, hist, settings, invDem);
   const colRules = rules.filter((r) => r.kind === "column" && r.enabled !== false);
   const alertRules = rules.filter((r) => r.kind === "alert" && r.enabled !== false && r._ast);
   const derived = new Map();

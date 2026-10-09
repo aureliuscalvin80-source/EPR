@@ -6,6 +6,8 @@ Spare-part inventory system with separate **PPN** and **Non-PPN** ledgers. It is
 
 ![Receiving a purchase order](docs/purchase-order.png)
 
+![Printed invoice](docs/invoice.png)
+
 ## Features
 
 | Area | What it does |
@@ -15,6 +17,9 @@ Spare-part inventory system with separate **PPN** and **Non-PPN** ledgers. It is
 | **Alerts** | Live list driven by alert formulas. Each alert shows **current stock vs reorder point** (or min stock when there is no sales history yet) and how far short it is, plus a gauge and the suggested order. Export to Excel. |
 | **Reorder** | From an alert, add the item to its supplier's **draft purchase order** (one draft per supplier collects everything you need from them). No supplier yet? Assign or add one right there. |
 | **Purchase orders** | Draft → **Sent** → **Partly received** → **Received** (or *Closed short* / *Cancelled*). Edit lines and prices while it's a draft, then send the whole order in one message: WhatsApp opens with the message, email opens your mail app, telephone dials, WeChat copies the message to paste. Book goods in as they arrive (partial deliveries are fine): stock goes up and an IN move is recorded automatically. Stock still to arrive counts as **on order**, so alerts and suggested quantities don't make you order the same thing twice. |
+| **Sales invoices** | Draft → **Issued** → paid (part payments allowed), or **Void**. Issuing gives the invoice its number (`INV/P/2026/0001` for PPN, `INV/N/…` for Non-PPN), freezes the customer details and totals, and **takes the items out of stock**; it refuses if stock is short. Voiding (admin, with a reason) puts the stock back. PPN invoices show DPP Nilai Lain (11/12) and PPN 12%, plus a field for the e-Faktur number (NSFP). Print / save as PDF with your letterhead and the amount in words (terbilang); send a payment reminder by WhatsApp or email. Overdue invoices are flagged. |
+| **Customers** | Name, person in charge, WhatsApp, phone, email, address, NPWP; shows how much each customer still owes. |
+| **Sell price** | Products have a purchase price (from the Persediaan report) and a separate sell price used on invoices. Import files with a `Harga Jual` / `Sell price` column set it. |
 | **Users & roles** | Sign-in required. **Admin**: everything. **Staff**: products, stock moves, suppliers, orders, files; can't delete, or change formulas, settings or users. **Viewer**: read only. Stock moves record who made them. |
 | **Suppliers** | Company name, person in charge, WhatsApp, WeChat ID, email, telephone, preferred channel and notes. Assign a supplier to each product; search inventory by supplier. |
 | **Formulas** | Small expression language (no `eval`) for alert rules and computed columns, with live "would trigger on N items" testing. |
@@ -80,4 +85,6 @@ legacy/        the original single-file artifact
 - **SheetJS** is installed from SheetJS's own CDN (0.20.3), because the npm registry only has 0.18.5, which has known advisories. `npm install` therefore needs access to `cdn.sheetjs.com`.
 - **Phone numbers** starting with 0 are assumed Indonesian (+62) for WhatsApp links; enter foreign numbers with + and the country code.
 - **Order prices** are copied from the product price when a line is added and can be edited on the draft. They are not written back to the product.
-- **Not yet built:** supplier invoices and payments, sales orders, multiple warehouses, a full audit log of every change (today only stock moves and orders record who did them), and a printable/PDF purchase order.
+- **Invoices are not submitted to DJP.** Issue the official e-Faktur in Coretax yourself and paste its number (NSFP) on the invoice. Have your accountant confirm the PPN presentation (DPP Nilai Lain 11/12 × 12%, rounded down to whole rupiah) matches what Coretax produces for your goods.
+- **Sales history:** issued invoices feed the safety-stock model for complete months that have no uploaded Hashiru sales report. Where a month has both, the report is used, so nothing is counted twice.
+- **Not yet built:** supplier invoices and payments, sales returns / credit notes (today: void and re-issue), multiple warehouses, a full audit log of every change, and a printable purchase order.

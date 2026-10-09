@@ -48,6 +48,8 @@
     <button class="nav-item" role="tab" data-tab="moves" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M7 20V4M3 8l4-4 4 4M17 4v16M13 16l4 4 4-4"/></svg><span>Stock moves</span></button>
     <button class="nav-item" role="tab" data-tab="alerts" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span>Alerts</span><span class="count zero" id="alertBadge">0</span></button>
     <button class="nav-item" role="tab" data-tab="pos" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.6L21 8H6"/><circle cx="10" cy="20" r="1"/><circle cx="17" cy="20" r="1"/></svg><span>Purchase orders</span><span class="count zero" id="poBadge">0</span></button>
+    <button class="nav-item" role="tab" data-tab="invoices" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6M9 13h8M9 17h8M9 9h3"/></svg><span>Sales invoices</span><span class="count zero" id="invBadge">0</span></button>
+    <button class="nav-item" role="tab" data-tab="customers" aria-selected="false"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><span>Customers</span></button>
     <button class="nav-item" role="tab" data-tab="suppliers" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M3 21V8l6-4v4l6-4v4l6-4v17z"/><path d="M7 17h2M11 17h2M15 17h2"/></svg><span>Suppliers</span></button>
     <button class="nav-item" role="tab" data-tab="formulas" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M18 7V4H6l6 8-6 8h12v-3"/></svg><span>Formulas</span></button>
     <button class="nav-item" role="tab" data-tab="files" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg><span>Files &amp; reports</span></button>
@@ -123,6 +125,32 @@
     <button data-f="open" aria-selected="true">Open</button><button data-f="draft" aria-selected="false">Drafts</button><button data-f="sent" aria-selected="false">Waiting for goods</button><button data-f="done" aria-selected="false">Finished</button><button data-f="all" aria-selected="false">All</button>
   </div>
   <div class="card flush"><div class="tbl-wrap bare"><table id="poTbl"><thead><tr><th>Order</th><th>Supplier</th><th>Status</th><th class="num">Items</th><th class="num">Total</th><th>Received</th><th>Created</th><th>Sent</th></tr></thead><tbody></tbody></table></div></div>
+</section>
+
+<!-- SALES INVOICES -->
+<section class="page" id="page-invoices" hidden>
+  <header class="page-head">
+    <div><h1>Sales invoices</h1><p class="sub">Issuing an invoice gives it its number and takes the items out of stock. Record payments as they come in.</p></div>
+    <button class="btn primary" id="invNew" data-need="staff"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>New invoice</button>
+  </header>
+  <div class="kpis" id="invKpis"></div>
+  <div class="toolbar">
+    <div class="seg" role="tablist" aria-label="Invoice status" id="invSeg">
+      <button data-f="unpaid" aria-selected="true">Unpaid</button><button data-f="overdue" aria-selected="false">Overdue</button><button data-f="draft" aria-selected="false">Drafts</button><button data-f="paid" aria-selected="false">Paid</button><button data-f="void" aria-selected="false">Void</button><button data-f="all" aria-selected="false">All</button>
+    </div>
+    <label class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="invQ" type="search" placeholder="Search number or customer" aria-label="Search invoices"></label>
+  </div>
+  <div class="card flush"><div class="tbl-wrap bare"><table id="invTblList"><thead><tr><th>Invoice</th><th>Date</th><th>Customer</th><th>Ledger</th><th class="num">Total</th><th class="num">Still owed</th><th>Status</th><th>Due</th></tr></thead><tbody></tbody></table></div></div>
+</section>
+
+<!-- CUSTOMERS -->
+<section class="page" id="page-customers" hidden>
+  <header class="page-head">
+    <div><h1>Customers</h1><p class="sub">Who you sell to. NPWP and address are printed on their invoices.</p></div>
+    <button class="btn primary" id="custAdd" data-need="staff"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add customer</button>
+  </header>
+  <div class="toolbar"><label class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="custQ" type="search" placeholder="Search name, contact, NPWP" aria-label="Search customers"></label><span class="hint" id="custSummary"></span></div>
+  <div class="card flush"><div class="tbl-wrap bare"><table id="custTbl"><thead><tr><th>Customer</th><th>Contact</th><th>Phone / WhatsApp</th><th>NPWP</th><th class="num">Invoices</th><th class="num">Still owed</th></tr></thead><tbody></tbody></table></div></div>
 </section>
 
 <!-- USERS -->
@@ -234,8 +262,15 @@
       <div class="row"><button class="btn" id="expAll">Export inventory to Excel</button><button class="btn" id="expAlerts">Export alerts to Excel</button></div>
     </div>
     <div class="card" data-need="admin">
+      <h2>Invoices</h2>
+      <p class="hint">Printed at the top of each invoice. PPN and Non-PPN invoices can come from different companies.</p>
+      <div class="field" style="max-width:220px"><label for="stTerms">Payment terms (days)</label><input id="stTerms" type="number" min="0" max="365" step="1"></div>
+      <div class="grid2 tight" id="issuerForm"></div>
+      <div class="row"><button class="btn primary" id="stInvSave">Save invoice settings</button><span id="stInvMsg" class="hint"></span></div>
+    </div>
+    <div class="card" data-need="admin">
       <h2>Example data</h2>
-      <div class="row"><span class="hint grow">Products with SKUs starting <span class="mono">DEMO-</span> and suppliers named <span class="mono">[Demo]</span> are examples. Remove them before loading your real stock.</span><button class="btn danger" id="clearDemo">Remove examples</button></div>
+      <div class="row"><span class="hint grow">Products with SKUs starting <span class="mono">DEMO-</span>, and suppliers and customers named <span class="mono">[Demo]</span>, are examples (their orders and invoices are removed too). Remove them before loading your real stock.</span><button class="btn danger" id="clearDemo">Remove examples</button></div>
     </div>
   </div>
 </section>
@@ -251,7 +286,8 @@
       <div class="field full"><label for="iName">Product name</label><input id="iName" required></div>
       <div class="field"><label for="iUnit">Unit</label><select id="iUnit"><option value="PCS">PCS</option><option value="SET">SET</option></select></div>
       <div class="field"><label for="iQty">Quantity</label><input id="iQty" type="number" step="1"></div>
-      <div class="field"><label for="iPrice">Price (Rp)</label><input id="iPrice" type="number" step="1" min="0"></div>
+      <div class="field"><label for="iPrice">Purchase price (Rp)</label><input id="iPrice" type="number" step="1" min="0"></div>
+      <div class="field"><label for="iSell">Sell price (Rp, excl. PPN)</label><input id="iSell" type="number" step="1" min="0"></div>
       <div class="field"><label for="iMin">Min stock</label><input id="iMin" type="number" step="1" min="0"></div>
       <div class="field full"><label for="iSupplier">Supplier</label><select id="iSupplier"></select></div>
     </div>
@@ -328,6 +364,58 @@
     <div class="field"><label for="poNewPick">Supplier</label><select id="poNewPick"></select></div>
     <div class="row dlg-foot"><span class="spacer"></span><button type="button" class="btn" id="poNewCancel">Cancel</button><button type="button" class="btn primary" id="poNewGo">Create draft</button></div>
   </div>
+</dialog>
+
+<dialog id="invNewDlg">
+  <div class="dlg">
+    <div class="dlg-head"><h2>New invoice</h2></div>
+    <div class="field"><label for="invNewTax">Ledger</label><select id="invNewTax"><option value="PPN">PPN</option><option value="NON">Non-PPN</option></select></div>
+    <div class="field"><label for="invNewCust">Customer</label><select id="invNewCust"></select></div>
+    <p class="hint">Not in the list? <button type="button" class="linklike" id="invNewCustAdd">Add a customer</button></p>
+    <div class="row dlg-foot"><span class="spacer"></span><button type="button" class="btn" id="invNewCancel">Cancel</button><button type="button" class="btn primary" id="invNewGo">Create draft</button></div>
+  </div>
+</dialog>
+
+<dialog id="invDlg" class="wide">
+  <div class="dlg">
+    <div class="dlg-head"><div><h2 id="invTitle">Invoice</h2><div class="hint" id="invMeta"></div></div><button type="button" class="icon-btn" id="invClose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+    <div class="note warnbox" id="invVoidNote" hidden></div>
+    <div class="fgrid" id="invHead"></div>
+    <div class="tbl-wrap"><table id="invLines"><thead></thead><tbody></tbody></table></div>
+    <div class="row" id="invAddRow"><input id="invAddItem" list="invItemList" placeholder="Add a product: type a SKU" autocomplete="off" style="flex:1 1 240px"><input id="invAddQty" type="number" min="1" step="1" placeholder="Qty" style="width:100px"><button type="button" class="btn" id="invAddBtn">Add line</button><datalist id="invItemList"></datalist></div>
+    <div class="inv-bottom">
+      <div class="inv-left">
+        <div class="field" id="invNoteWrap"><label for="invNote">Note on the invoice</label><textarea id="invNote" rows="2"></textarea></div>
+        <div id="invPayments"></div>
+      </div>
+      <div class="totals" id="invTotals"></div>
+    </div>
+    <div class="err" id="invErr" role="alert"></div>
+    <div id="invSendBox" class="send-box" hidden>
+      <div class="field"><label for="invMsg">Message to the customer</label><textarea id="invMsg" rows="8"></textarea></div>
+      <div class="row" id="invChannels"></div>
+      <div class="hint">Attach the PDF yourself: use Print → Save as PDF, then add it to the WhatsApp chat or email.</div>
+    </div>
+    <div class="row dlg-foot" id="invActions"></div>
+  </div>
+</dialog>
+
+<dialog id="custDlg">
+  <form class="dlg" id="custForm" method="dialog">
+    <div class="dlg-head"><h2 id="custTitle">Customer</h2><button type="button" class="icon-btn" id="custClose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+    <div class="fgrid">
+      <div class="field full"><label for="cName">Customer / company name</label><input id="cName" required></div>
+      <div class="field full"><label for="cContact">Person in charge</label><input id="cContact"></div>
+      <div class="field"><label for="cWhatsapp">WhatsApp</label><input id="cWhatsapp" type="tel" placeholder="+62 812 …"></div>
+      <div class="field"><label for="cPhone">Telephone</label><input id="cPhone" type="tel"></div>
+      <div class="field full"><label for="cEmail">Email</label><input id="cEmail" type="email"></div>
+      <div class="field full"><label for="cAddress">Address (printed on invoices)</label><textarea id="cAddress" rows="2"></textarea></div>
+      <div class="field"><label for="cNpwp">NPWP</label><input id="cNpwp" class="mono" placeholder="15 or 16 digits"></div>
+      <div class="field full"><label for="cNotes">Notes</label><textarea id="cNotes" rows="2"></textarea></div>
+    </div>
+    <div class="err" id="custErr" role="alert"></div>
+    <div class="row dlg-foot"><button type="button" class="btn ghost-danger" id="custDel" data-need="admin">Delete</button><span class="spacer"></span><button type="button" class="btn" id="custCancel">Cancel</button><button type="submit" class="btn primary" id="custSave" data-need="staff">Save</button></div>
+  </form>
 </dialog>
 
 <dialog id="uDlg">
