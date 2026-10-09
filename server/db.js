@@ -99,15 +99,72 @@ CREATE TABLE IF NOT EXISTS suppliers (
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS users (
+  id            TEXT PRIMARY KEY,
+  username      TEXT NOT NULL UNIQUE,
+  name          TEXT NOT NULL,
+  role          TEXT NOT NULL CHECK (role IN ('admin','staff','viewer')),
+  password_hash TEXT NOT NULL,
+  active        INTEGER NOT NULL DEFAULT 1,
+  created_at    INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL
+);
+-- id is the SHA-256 of the session token; the token itself only lives in the user's cookie.
+CREATE TABLE IF NOT EXISTS sessions (
+  id         TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sessions_user ON sessions (user_id);
+CREATE TABLE IF NOT EXISTS purchase_orders (
+  id          TEXT PRIMARY KEY,
+  number      TEXT NOT NULL UNIQUE,
+  supplier_id TEXT NOT NULL,
+  status      TEXT NOT NULL CHECK (status IN ('draft','sent','partial','received','closed','cancelled')),
+  note        TEXT NOT NULL DEFAULT '',
+  created_by  TEXT NOT NULL DEFAULT '',
+  created_at  INTEGER NOT NULL,
+  sent_at     INTEGER,
+  sent_via    TEXT NOT NULL DEFAULT '',
+  closed_at   INTEGER,
+  updated_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS po_supplier ON purchase_orders (supplier_id, status);
+-- sku/name/unit are copied onto the line so an order stays readable if the product is later renamed or deleted.
+CREATE TABLE IF NOT EXISTS po_lines (
+  id       TEXT PRIMARY KEY,
+  po_id    TEXT NOT NULL,
+  item_key TEXT NOT NULL,
+  sku      TEXT NOT NULL,
+  tax      TEXT NOT NULL,
+  name     TEXT NOT NULL,
+  unit     TEXT NOT NULL,
+  qty      REAL NOT NULL,
+  received REAL NOT NULL DEFAULT 0,
+  price    REAL NOT NULL DEFAULT 0,
+  pos      INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS po_lines_po ON po_lines (po_id);
 `;
 
 /** Columns added after the first release; ALTER them into databases created before. */
-const MIGRATIONS = [["items", "supplier_id", "TEXT"]];
+const MIGRATIONS = [
+  ["items", "supplier_id", "TEXT"],
+  ["moves", "user_name", "TEXT NOT NULL DEFAULT ''"],
+];
+
+// Starter formulas that predate purchase orders: count stock already on order, so items on an open PO stop alerting.
+// Only formulas still exactly as shipped are changed.
+const RULE_UPGRADES = [
+  ["hist_months > 0 and qty < reorder_point", "hist_months > 0 and qty + on_order < reorder_point"],
+  ["min_stock > 0 and qty < min_stock", "min_stock > 0 and qty + on_order < min_stock"],
+];
 
 const DEFAULT_RULES = [
   { name: "Below safety stock", kind: "alert", scope: "ALL", severity: "crit", expr: "hist_months > 0 and qty <= safety_stock" },
-  { name: "Reorder now", kind: "alert", scope: "ALL", severity: "warn", expr: "hist_months > 0 and qty < reorder_point" },
-  { name: "Below min stock", kind: "alert", scope: "ALL", severity: "warn", expr: "min_stock > 0 and qty < min_stock" },
+  { name: "Reorder now", kind: "alert", scope: "ALL", severity: "warn", expr: "hist_months > 0 and qty + on_order < reorder_point" },
+  { name: "Below min stock", kind: "alert", scope: "ALL", severity: "warn", expr: "min_stock > 0 and qty + on_order < min_stock" },
   { name: "Suggested order", kind: "column", scope: "ALL", severity: "warn", expr: "suggested_order" },
 ];
 
@@ -119,6 +176,7 @@ export function openDb(file) {
   for (const [table, col, type] of MIGRATIONS) {
     if (!db.prepare(`SELECT 1 FROM pragma_table_info('${table}') WHERE name = ?`).get(col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`);
   }
+  for (const [from, to] of RULE_UPGRADES) db.prepare("UPDATE rules SET expr = ? WHERE expr = ?").run(to, from);
   // First run: write default settings and a starter set of formulas.
   if (!db.prepare("SELECT 1 FROM settings WHERE id = 1").get()) {
     tx(db, () => {

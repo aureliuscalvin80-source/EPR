@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { waNumber, whatsappUrl, mailtoUrl, telUrl, supplierChannels, defaultOrderQty, reorderMessage } from "../public/js/contact.js";
+import { waNumber, whatsappUrl, mailtoUrl, telUrl, supplierChannels, defaultOrderQty, poMessage } from "../public/js/contact.js";
 
 test("waNumber converts local Indonesian and international formats", () => {
   assert.equal(waNumber("0812-3456-7890"), "6281234567890");
@@ -25,10 +25,12 @@ test("defaultOrderQty uses the stock model, else tops up to min stock", () => {
   assert.equal(defaultOrderQty({ suggested_order: 40, min_stock: 5, qty: 1 }), 40);
   assert.equal(defaultOrderQty({ suggested_order: 0, min_stock: 6, qty: 4 }), 2);
   assert.equal(defaultOrderQty({ suggested_order: 0, min_stock: 0, qty: 4 }), 0);
+  assert.equal(defaultOrderQty({ suggested_order: 0, min_stock: 10, qty: 4, on_order: 5 }), 1, "stock already on order counts");
 });
 
-test("reorderMessage names the person in charge and the item", () => {
-  const m = reorderMessage({ supplier: { contact: "Budi" }, item: { sku: "A1", name: "Bolt", unit: "PCS" }, qty: 12 });
+test("poMessage lists every line and the note", () => {
+  const po = { number: "PO-2026-0001", note: "Deliver to warehouse B", lines: [{ sku: "A1", name: "Bolt", qty: 12, unit: "PCS" }, { sku: "B2", name: "Nut", qty: 3, unit: "SET" }] };
+  const m = poMessage({ supplier: { contact: "Budi" }, po });
   assert.match(m, /^Hello Budi,/);
-  assert.match(m, /- A1 Bolt: 12 PCS/);
+  assert.match(m, /Purchase order PO-2026-0001:\n- A1 Bolt: 12 PCS\n- B2 Nut: 3 SET\n\nDeliver to warehouse B\n/);
 });

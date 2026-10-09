@@ -185,7 +185,9 @@ export const VARS = [
   ["safety_stock", "Z × σ × √((lead_time + review_period) ÷ 30.4), rounded up"],
   ["reorder_point", "avg_daily_demand × (lead_time + review_period) + safety_stock"],
   ["order_up_to", "avg_daily_demand × (lead_time + 2 × review_period) + safety_stock"],
-  ["suggested_order", "order_up_to − qty when qty is below reorder_point, else 0"],
+  ["on_order", "Still to arrive on sent purchase orders"],
+  ["inventory_position", "qty + on_order"],
+  ["suggested_order", "order_up_to − inventory_position when that is below reorder_point, else 0"],
   ["mixed_units", "1 if this SKU also sold in the other unit (PCS vs SET)"],
   ["days_cover", "qty ÷ daily sales (report history, else Stock moves; 9999 if none)"],
 ];

@@ -4,6 +4,8 @@ Spare-part inventory system with separate **PPN** and **Non-PPN** ledgers. It is
 
 ![Inventory](docs/inventory.png)
 
+![Receiving a purchase order](docs/purchase-order.png)
+
 ## Features
 
 | Area | What it does |
@@ -11,7 +13,9 @@ Spare-part inventory system with separate **PPN** and **Non-PPN** ledgers. It is
 | **Inventory** | Products by SKU and ledger, unit (PCS / SET), qty, price, min stock. Search, filters, sortable columns, paging, stock-value KPIs. |
 | **Stock moves** | Book IN / OUT / ADJ. Stock is updated on the server in one transaction, so two people booking at once can't overwrite each other. OUT below zero is refused. |
 | **Alerts** | Live list driven by alert formulas. Each alert shows **current stock vs reorder point** (or min stock when there is no sales history yet) and how far short it is, plus a gauge and the suggested order. Export to Excel. |
-| **Reorder** | One click from an alert opens the SKU's supplier with a pre-filled order message: WhatsApp opens with the message, email opens your mail app, telephone dials, and for WeChat the message is copied to paste (browsers can't pre-fill WeChat). No supplier yet? Assign or add one right there. |
+| **Reorder** | From an alert, add the item to its supplier's **draft purchase order** (one draft per supplier collects everything you need from them). No supplier yet? Assign or add one right there. |
+| **Purchase orders** | Draft → **Sent** → **Partly received** → **Received** (or *Closed short* / *Cancelled*). Edit lines and prices while it's a draft, then send the whole order in one message: WhatsApp opens with the message, email opens your mail app, telephone dials, WeChat copies the message to paste. Book goods in as they arrive (partial deliveries are fine): stock goes up and an IN move is recorded automatically. Stock still to arrive counts as **on order**, so alerts and suggested quantities don't make you order the same thing twice. |
+| **Users & roles** | Sign-in required. **Admin**: everything. **Staff**: products, stock moves, suppliers, orders, files; can't delete, or change formulas, settings or users. **Viewer**: read only. Stock moves record who made them. |
 | **Suppliers** | Company name, person in charge, WhatsApp, WeChat ID, email, telephone, preferred channel and notes. Assign a supplier to each product; search inventory by supplier. |
 | **Formulas** | Small expression language (no `eval`) for alert rules and computed columns, with live "would trigger on N items" testing. |
 | **Files & reports** | Upload any file (≤ 15 MB). Hashiru sales reports, stock reports and yearly workbooks are parsed, reconciled to the report totals, and feed demand history. A coverage grid shows which months are loaded. |
@@ -27,15 +31,21 @@ Requires **Node.js 22.5 or newer** (uses the built-in `node:sqlite`, so there is
 
 ```bash
 npm install
-npm start            # http://127.0.0.1:3000
 npm run seed:demo    # optional: 8 DEMO- products and 2 [Demo] suppliers to try things out
+npm start            # http://127.0.0.1:3000
 npm test             # unit + API tests
 ```
+
+**First run:** the terminal prints a one-time **setup code**. Open the app, enter the code and create your admin account. Then add your staff under **Users**. The code is only accepted until the first admin exists, so nobody else on the network can claim the account first.
+
+**Forgot the admin password?** On the server: `npm run reset-password -- <username>` prints a new temporary password.
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `PORT` | `3000` | HTTP port |
 | `HOST` | `127.0.0.1` | Set `0.0.0.0` to let other computers on your network use it — **read "Security" first** |
+| `COOKIE_SECURE` | off | Set `1` when the app is served over HTTPS, so the sign-in cookie is never sent unencrypted |
+| `TRUST_PROXY` | off | Set `1` behind a reverse proxy (nginx, Caddy) so login rate-limiting sees real client IPs |
 | `DATA_DIR` | `./data` | SQLite database (`erp.sqlite`) and uploaded files (`uploads/`) |
 
 **Back up `DATA_DIR`.** It holds everything: the database and every uploaded file.
@@ -65,8 +75,9 @@ legacy/        the original single-file artifact
 
 ## Security and known limits
 
-- **No login yet.** Anyone who can reach the server can read and change everything. That's why it listens on localhost only by default. Add authentication (and HTTPS via a reverse proxy) before opening it to a network.
+- **Sign-in.** Passwords are hashed with scrypt; sessions are random tokens in an HttpOnly, SameSite=Strict cookie (only their hash is stored); 5 wrong passwords lock that username for 15 minutes from that address; writes need a header other websites can't send (CSRF protection). Switching a user off, changing their role or resetting their password signs them out everywhere at once.
+- **Use HTTPS before opening it to a network.** Over plain HTTP, passwords and cookies cross the network unencrypted. Put it behind Caddy or nginx with a certificate and set `COOKIE_SECURE=1` and `TRUST_PROXY=1`. Localhost-only use (the default) doesn't need this.
 - **SheetJS** is installed from SheetJS's own CDN (0.20.3), because the npm registry only has 0.18.5, which has known advisories. `npm install` therefore needs access to `cdn.sheetjs.com`.
-- **Reorder doesn't record an order.** It only contacts the supplier, so the app can't tell you an order is already on its way; book the goods as a stock move (IN) when they arrive. Purchase orders are the fix (see below).
 - **Phone numbers** starting with 0 are assumed Indonesian (+62) for WhatsApp links; enter foreign numbers with + and the country code.
-- **It is an inventory module, not yet a full ERP.** Purchasing (POs, suppliers), sales orders/invoicing, multi-warehouse, users/roles and an audit log are the natural next modules.
+- **Order prices** are copied from the product price when a line is added and can be edited on the draft. They are not written back to the product.
+- **Not yet built:** supplier invoices and payments, sales orders, multiple warehouses, a full audit log of every change (today only stock moves and orders record who did them), and a printable/PDF purchase order.

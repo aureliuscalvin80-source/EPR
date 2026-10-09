@@ -6,7 +6,9 @@ import { fileURLToPath } from "node:url";
 import { openDb, tx } from "./db.js";
 import { HttpError } from "./http.js";
 import { applyReports } from "./reports.js";
-import { parse } from "../public/js/formula.js";
+import { createAuth, makeSetupCode } from "./auth.js";
+import { createPurchasing, listPos, supplierHasPos } from "./purchasing.js";
+import { str, numIn, oneOf, itemFields, ruleFields, supplierFields } from "./validate.js";
 import { DEFAULT_SETTINGS } from "../public/js/stock.js";
 import { keyOf } from "../public/js/util.js";
 
@@ -16,96 +18,56 @@ const XLSX_DIST = path.join(ROOT, "node_modules", "xlsx", "dist");
 const MAX_UPLOAD = 15 * 1024 * 1024;
 const MOVE_DAYS = 31;
 
-// ---------- input validation ----------
-const str = (v, max = 500) => String(v ?? "").trim().slice(0, max);
-function numIn(v, label, { min = -Infinity } = {}) {
-  const n = v === "" || v == null ? 0 : Number(v);
-  if (!Number.isFinite(n) || n < min) throw new HttpError(400, `${label} must be a number${min === 0 ? " of 0 or more" : ""}.`);
-  return n;
-}
-const oneOf = (v, allowed, label) => {
-  if (!allowed.includes(v)) throw new HttpError(400, `${label} must be one of ${allowed.join(", ")}.`);
-  return v;
-};
-function itemFields(b) {
-  return {
-    name: str(b.name),
-    unit: oneOf(b.unit ?? "PCS", ["PCS", "SET"], "Unit"),
-    qty: numIn(b.qty, "Quantity"),
-    price: numIn(b.price, "Price", { min: 0 }),
-    minStock: numIn(b.minStock, "Min stock", { min: 0 }),
-  };
-}
-function ruleFields(b) {
-  const r = {
-    name: str(b.name, 120),
-    kind: oneOf(b.kind, ["alert", "column"], "Type"),
-    scope: oneOf(b.scope ?? "ALL", ["ALL", "PPN", "NON"], "Applies to"),
-    severity: oneOf(b.severity ?? "warn", ["warn", "crit"], "Severity"),
-    expr: str(b.expr, 2000),
-  };
-  if (!r.name) throw new HttpError(400, "Give the formula a name.");
-  try {
-    parse(r.expr);
-  } catch (e) {
-    throw new HttpError(400, "Formula error: " + e.message);
-  }
-  return r;
-}
-
-const CHANNELS = ["whatsapp", "wechat", "email", "phone"];
-function supplierFields(b) {
-  const f = {
-    company: str(b.company, 200),
-    contact: str(b.contact, 200),
-    wechat: str(b.wechat, 100),
-    whatsapp: str(b.whatsapp, 40),
-    email: str(b.email, 200),
-    phone: str(b.phone, 40),
-    preferred: oneOf(b.preferred ?? "", ["", ...CHANNELS], "Preferred channel"),
-    notes: str(b.notes, 2000),
-  };
-  if (!f.company) throw new HttpError(400, "Company name is required.");
-  if (!CHANNELS.some((c) => f[c])) throw new HttpError(400, "Add at least one way to contact this supplier.");
-  if (f.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email)) throw new HttpError(400, "That email address doesn't look right.");
-  for (const c of ["whatsapp", "phone"]) {
-    if (f[c] && !/^\+?[\d\s().-]{6,}$/.test(f[c])) throw new HttpError(400, `${c === "phone" ? "Telephone" : "WhatsApp"} number can only contain digits, spaces, +, -, ( and ).`);
-  }
-  if (f.preferred && !f[f.preferred]) throw new HttpError(400, "The preferred channel has no contact details filled in.");
-  return f;
-}
-
 // ---------- row → API shape ----------
 const itemOut = (r) => ({ key: r.key, sku: r.sku, tax: r.tax, name: r.name, unit: r.unit, qty: r.qty, price: r.price, minStock: r.min_stock, supplierId: r.supplier_id || "", updatedAt: r.updated_at });
 const supplierOut = (r) => ({ id: r.id, company: r.company, contact: r.contact, wechat: r.wechat, whatsapp: r.whatsapp, email: r.email, phone: r.phone, preferred: r.preferred, notes: r.notes });
 const ruleOut = (r) => ({ id: r.id, name: r.name, kind: r.kind, scope: r.scope, severity: r.severity, expr: r.expr, enabled: !!r.enabled, createdAt: r.created_at });
 const histOut = (r) => ({ id: r.id, fileId: r.file_id, file: r.file, kind: r.kind, tax: r.tax, ym: r.ym, check: r.status, msg: r.msg, lines: r.lines, skus: r.skus, qty: r.qty, rp: r.rp, otherUnits: r.other_units });
 
-export function createApp({ dataDir }) {
+export function createApp({ dataDir, setupCode = makeSetupCode(), secureCookies = false }) {
   const uploadDir = path.join(dataDir, "uploads");
   fs.mkdirSync(uploadDir, { recursive: true });
   const db = openDb(path.join(dataDir, "erp.sqlite"));
   const app = express();
   app.disable("x-powered-by");
   app.use((req, res, next) => {
-    res.set("X-Content-Type-Options", "nosniff");
+    res.set({ "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY", "Referrer-Policy": "same-origin" });
     next();
   });
 
   // ---------- live updates (Server-Sent Events) ----------
-  const clients = new Set();
+  const clients = new Set(); // { res, userId, sid }
   const changed = () => {
-    for (const c of clients) c.write("event: change\ndata: {}\n\n");
+    for (const c of clients) c.res.write("event: change\ndata: {}\n\n");
   };
+  // A signed-out or switched-off user stops receiving live data at once.
+  const onUserRevoked = (userId, exceptSid) => {
+    for (const c of clients) if (c.userId === userId && c.sid !== exceptSid) { c.res.end(); clients.delete(c); }
+  };
+
+  // ---------- sign-in ----------
+  const auth = createAuth(db, { setupCode, secureCookies, onUserRevoked });
+  const { need } = auth;
+  // Writes must carry this header. Browsers won't add it to a request from another site without
+  // asking this server first (CORS), which it never allows, so other pages can't act as a signed-in user.
+  app.use("/api", (req, res, next) => {
+    if (req.method === "GET" || req.method === "HEAD" || req.get("X-Requested-With") === "erp") return next();
+    res.status(403).json({ error: "Request blocked. Reload the page and try again." });
+  });
+  app.use("/api/auth", auth.pub);
+  app.use("/api", auth.authenticate);
+  app.use("/api", auth.priv);
+
   app.get("/api/events", (req, res) => {
     res.set({ "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
     res.flushHeaders();
     res.write("retry: 3000\n\n");
-    clients.add(res);
+    const c = { res, userId: req.user.id, sid: req.sessionId };
+    clients.add(c);
     const ping = setInterval(() => res.write(": ping\n\n"), 25000);
     req.on("close", () => {
       clearInterval(ping);
-      clients.delete(res);
+      clients.delete(c);
     });
   });
 
@@ -137,9 +99,11 @@ export function createApp({ dataDir }) {
       dem,
       rules: db.prepare("SELECT * FROM rules ORDER BY created_at").all().map(ruleOut),
       suppliers: db.prepare("SELECT * FROM suppliers ORDER BY company COLLATE NOCASE").all().map(supplierOut),
+      pos: listPos(db),
       files,
       history: db.prepare("SELECT * FROM history").all().map(histOut),
-      moves: db.prepare("SELECT * FROM moves WHERE t >= ? ORDER BY t DESC").all(Date.now() - MOVE_DAYS * 864e5).map((m) => ({ ...m })),
+      moves: db.prepare("SELECT * FROM moves WHERE t >= ? ORDER BY t DESC").all(Date.now() - MOVE_DAYS * 864e5)
+        .map((m) => ({ id: m.id, t: m.t, key: m.key, sku: m.sku, tax: m.tax, type: m.type, qty: m.qty, note: m.note, by: m.user_name })),
       settings: { ...DEFAULT_SETTINGS, ...JSON.parse(db.prepare("SELECT json FROM settings WHERE id = 1").get().json) },
       usage: { bytes: files.reduce((a, f) => a + f.size, 0) },
     });
@@ -156,10 +120,11 @@ export function createApp({ dataDir }) {
     if (id && !db.prepare("SELECT 1 FROM suppliers WHERE id = ?").get(id)) throw new HttpError(400, "That supplier no longer exists.");
     return id || null;
   };
-  const addMove = (it, type, qty, note, t = Date.now()) =>
-    db.prepare("INSERT INTO moves (t, key, sku, tax, type, qty, note) VALUES (?, ?, ?, ?, ?, ?, ?)").run(t, it.key, it.sku, it.tax, type, qty, note);
+  const addMove = (it, type, qty, note, user) =>
+    db.prepare("INSERT INTO moves (t, key, sku, tax, type, qty, note, user_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(Date.now(), it.key, it.sku, it.tax, type, qty, note, user?.name || "");
 
-  app.post("/api/items", json, write((req) => {
+  app.post("/api/items", need("staff"), json, write((req) => {
     const sku = str(req.body.sku, 100);
     const tax = oneOf(req.body.tax, ["PPN", "NON"], "Ledger");
     if (!sku) throw new HttpError(400, "SKU is required.");
@@ -174,7 +139,7 @@ export function createApp({ dataDir }) {
     return { key };
   }));
 
-  app.put("/api/items/:key", json, write((req) => {
+  app.put("/api/items/:key", need("staff"), json, write((req) => {
     const f = itemFields(req.body);
     if (!f.name) throw new HttpError(400, "Product name is required.");
     const supplierId = supplierIdIn(req.body.supplierId);
@@ -182,15 +147,15 @@ export function createApp({ dataDir }) {
       const prev = getItem(req.params.key);
       db.prepare("UPDATE items SET name = ?, unit = ?, qty = ?, price = ?, min_stock = ?, supplier_id = ?, updated_at = ? WHERE key = ?")
         .run(f.name, f.unit, f.qty, f.price, f.minStock, supplierId, Date.now(), prev.key);
-      if (prev.qty !== f.qty) addMove(prev, "ADJ", f.qty - prev.qty, "Edited in product form");
+      if (prev.qty !== f.qty) addMove(prev, "ADJ", f.qty - prev.qty, "Edited in product form", req.user);
     });
   }));
 
-  app.delete("/api/items/:key", write((req) => {
+  app.delete("/api/items/:key", need("admin"), write((req) => {
     if (!db.prepare("DELETE FROM items WHERE key = ?").run(req.params.key).changes) throw new HttpError(404, "This product no longer exists.");
   }));
 
-  app.post("/api/items/import", json, write((req) => {
+  app.post("/api/items/import", need("staff"), json, write((req) => {
     const rows = req.body.rows;
     if (!Array.isArray(rows) || !rows.length) throw new HttpError(400, "No rows to import.");
     const now = Date.now();
@@ -211,11 +176,13 @@ export function createApp({ dataDir }) {
     return { imported: n };
   }));
 
-  app.post("/api/items/remove-demo", write(() => {
+  app.post("/api/items/remove-demo", need("admin"), write(() => {
     return tx(db, () => {
       const removed = db.prepare("DELETE FROM items WHERE sku LIKE 'DEMO-%'").run().changes;
       db.prepare("DELETE FROM moves WHERE sku LIKE 'DEMO-%'").run();
       const demoSuppliers = "SELECT id FROM suppliers WHERE company LIKE '[Demo]%'";
+      db.prepare(`DELETE FROM po_lines WHERE po_id IN (SELECT id FROM purchase_orders WHERE supplier_id IN (${demoSuppliers}))`).run();
+      db.prepare(`DELETE FROM purchase_orders WHERE supplier_id IN (${demoSuppliers})`).run();
       db.prepare(`UPDATE items SET supplier_id = NULL WHERE supplier_id IN (${demoSuppliers})`).run();
       db.prepare(`DELETE FROM suppliers WHERE id IN (${demoSuppliers})`).run();
       return { removed };
@@ -223,7 +190,7 @@ export function createApp({ dataDir }) {
   }));
 
   // ---------- stock moves ----------
-  app.post("/api/moves", json, write((req) => {
+  app.post("/api/moves", need("staff"), json, write((req) => {
     const type = oneOf(req.body.type, ["IN", "OUT", "ADJ"], "Type");
     const q = numIn(req.body.qty, "Quantity", { min: 0 });
     // Read and write in one transaction so two people booking at once can't lose a movement.
@@ -232,20 +199,20 @@ export function createApp({ dataDir }) {
       const next = type === "IN" ? it.qty + q : type === "OUT" ? it.qty - q : q;
       if (next < 0) throw new HttpError(409, `Only ${it.qty} ${it.unit} on hand. OUT would go negative.`);
       db.prepare("UPDATE items SET qty = ?, updated_at = ? WHERE key = ?").run(next, Date.now(), it.key);
-      addMove(it, type, next - it.qty, str(req.body.note));
+      addMove(it, type, next - it.qty, str(req.body.note), req.user);
       return { sku: it.sku, unit: it.unit, from: it.qty, to: next };
     });
   }));
 
   // Assign (or clear) the supplier of one product without touching anything else.
-  app.put("/api/items/:key/supplier", json, write((req) => {
+  app.put("/api/items/:key/supplier", need("staff"), json, write((req) => {
     const supplierId = supplierIdIn(req.body.supplierId);
     if (!db.prepare("UPDATE items SET supplier_id = ?, updated_at = ? WHERE key = ?").run(supplierId, Date.now(), req.params.key).changes)
       throw new HttpError(404, "This product no longer exists.");
   }));
 
   // ---------- suppliers ----------
-  app.post("/api/suppliers", json, write((req) => {
+  app.post("/api/suppliers", need("staff"), json, write((req) => {
     const f = supplierFields(req.body);
     const id = randomUUID();
     const now = Date.now();
@@ -253,14 +220,15 @@ export function createApp({ dataDir }) {
       .run(id, f.company, f.contact, f.wechat, f.whatsapp, f.email, f.phone, f.preferred, f.notes, now, now);
     return { id };
   }));
-  app.put("/api/suppliers/:id", json, write((req) => {
+  app.put("/api/suppliers/:id", need("staff"), json, write((req) => {
     const f = supplierFields(req.body);
     const res = db.prepare("UPDATE suppliers SET company = ?, contact = ?, wechat = ?, whatsapp = ?, email = ?, phone = ?, preferred = ?, notes = ?, updated_at = ? WHERE id = ?")
       .run(f.company, f.contact, f.wechat, f.whatsapp, f.email, f.phone, f.preferred, f.notes, Date.now(), req.params.id);
     if (!res.changes) throw new HttpError(404, "This supplier no longer exists.");
   }));
-  app.delete("/api/suppliers/:id", write((req) => {
+  app.delete("/api/suppliers/:id", need("admin"), write((req) => {
     return tx(db, () => {
+      if (supplierHasPos(db, req.params.id)) throw new HttpError(409, "This supplier has purchase orders, so it can't be deleted. Its orders would lose their supplier.");
       const unassigned = db.prepare("UPDATE items SET supplier_id = NULL WHERE supplier_id = ?").run(req.params.id).changes;
       if (!db.prepare("DELETE FROM suppliers WHERE id = ?").run(req.params.id).changes) throw new HttpError(404, "This supplier no longer exists.");
       return { unassigned };
@@ -268,7 +236,7 @@ export function createApp({ dataDir }) {
   }));
 
   // ---------- formulas ----------
-  app.post("/api/rules", json, write((req) => {
+  app.post("/api/rules", need("admin"), json, write((req) => {
     const r = ruleFields(req.body);
     const id = randomUUID();
     const now = Date.now();
@@ -276,21 +244,21 @@ export function createApp({ dataDir }) {
       .run(id, r.name, r.kind, r.scope, r.severity, r.expr, now, now);
     return { id };
   }));
-  app.put("/api/rules/:id", json, write((req) => {
+  app.put("/api/rules/:id", need("admin"), json, write((req) => {
     const r = ruleFields(req.body);
     const res = db.prepare("UPDATE rules SET name = ?, kind = ?, scope = ?, severity = ?, expr = ?, updated_at = ? WHERE id = ?")
       .run(r.name, r.kind, r.scope, r.severity, r.expr, Date.now(), req.params.id);
     if (!res.changes) throw new HttpError(404, "This formula no longer exists.");
   }));
-  app.patch("/api/rules/:id", json, write((req) => {
+  app.patch("/api/rules/:id", need("admin"), json, write((req) => {
     db.prepare("UPDATE rules SET enabled = ?, updated_at = ? WHERE id = ?").run(req.body.enabled ? 1 : 0, Date.now(), req.params.id);
   }));
-  app.delete("/api/rules/:id", write((req) => {
+  app.delete("/api/rules/:id", need("admin"), write((req) => {
     db.prepare("DELETE FROM rules WHERE id = ?").run(req.params.id);
   }));
 
   // ---------- settings ----------
-  app.put("/api/settings", json, write((req) => {
+  app.put("/api/settings", need("admin"), json, write((req) => {
     const b = req.body;
     const s = {
       ppnRate: numIn(b.ppnRate, "PPN rate", { min: 0 }),
@@ -311,7 +279,7 @@ export function createApp({ dataDir }) {
     if (!f) throw new HttpError(404, "This file no longer exists.");
     return f;
   };
-  app.post("/api/files", express.raw({ type: () => true, limit: MAX_UPLOAD }), write((req) => {
+  app.post("/api/files", need("staff"), express.raw({ type: () => true, limit: MAX_UPLOAD }), write((req) => {
     const q = req.query;
     const name = str(q.name, 255);
     if (!name) throw new HttpError(400, "File name is missing.");
@@ -332,7 +300,7 @@ export function createApp({ dataDir }) {
       next(e);
     }
   });
-  app.delete("/api/files/:id", write((req) => {
+  app.delete("/api/files/:id", need("admin"), write((req) => {
     const f = getFile(req.params.id);
     tx(db, () => {
       db.prepare("DELETE FROM history WHERE file_id = ?").run(f.id);
@@ -341,8 +309,11 @@ export function createApp({ dataDir }) {
     fs.rmSync(filePath(f.id), { force: true });
   }));
 
+  // ---------- purchase orders ----------
+  app.use("/api/pos", createPurchasing(db, { need, write, addMove }));
+
   // ---------- reports ----------
-  app.post("/api/reports", json, write((req) => ({ message: applyReports(db, req.body.results, !!req.body.setStock) })));
+  app.post("/api/reports", need("staff"), json, write((req) => ({ message: applyReports(db, req.body.results, !!req.body.setStock) })));
 
   app.use("/api", (req, res) => res.status(404).json({ error: "Not found" }));
   // SheetJS is served locally so spreadsheets can be read without internet access.
@@ -357,8 +328,10 @@ export function createApp({ dataDir }) {
     res.status(500).json({ error: "Something went wrong on the server. Try again." });
   });
 
+  app.locals.setupCode = setupCode;
+  app.locals.needsSetup = () => auth.userCount() === 0;
   app.locals.close = () => {
-    for (const c of clients) c.end();
+    for (const c of clients) c.res.end();
     db.close();
   };
   return app;

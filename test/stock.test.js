@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normInv, ymAdd, demandStats, baseVars, evaluate, DEFAULT_SETTINGS } from "../public/js/stock.js";
+import { normInv, ymAdd, demandStats, baseVars, evaluate, onOrderByItem, DEFAULT_SETTINGS } from "../public/js/stock.js";
 
 const near = (a, b, eps = 1e-3) => assert.ok(Math.abs(a - b) < eps, `${a} ≉ ${b}`);
 
@@ -82,4 +82,22 @@ test("evaluate: columns feed later alerts; scope and pause are respected", () =>
   assert.deepEqual(r.derived.get("NON~B").alerts.map((x) => x.id), ["a1"]);
   assert.equal(r.derived.get("NON~B").sev, "crit");
   assert.equal(r.alerts[0].r.id, "a1", "critical alerts sort first");
+});
+
+test("stock on sent purchase orders counts toward the reorder decision", () => {
+  const pos = [
+    { status: "sent", lines: [{ itemKey: "PPN~A", qty: 50, received: 0 }] },
+    { status: "partial", lines: [{ itemKey: "PPN~A", qty: 20, received: 15 }] },
+    { status: "draft", lines: [{ itemKey: "PPN~A", qty: 99, received: 0 }] },
+    { status: "received", lines: [{ itemKey: "PPN~A", qty: 7, received: 7 }] },
+  ];
+  assert.equal(onOrderByItem(pos).get("PPN~A"), 55);
+  const s = { ...DEFAULT_SETTINGS, leadTime: 30, reviewDays: 30, serviceLevel: 95 };
+  const ds = { n: 12, mean: 30.4, sd: 10, so: 0, mixed: 0 };
+  const without = baseVars(it, new Map(), ds, s, 0);
+  const withPo = baseVars(it, new Map(), ds, s, 55);
+  assert.equal(without.suggested_order, 109);
+  assert.equal(withPo.inventory_position, 60);
+  assert.equal(withPo.suggested_order, 54, "orders up to 114 from a position of 60");
+  assert.equal(baseVars(it, new Map(), ds, s, 100).suggested_order, 0, "enough on order: nothing to suggest");
 });

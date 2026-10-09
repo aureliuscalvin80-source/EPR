@@ -1,13 +1,13 @@
-import { api, subscribe } from "./api.js";
+import { api, subscribe, setUnauthorizedHandler } from "./api.js";
 import { parse, evalAst, VARS, colVar } from "./formula.js";
 import { evaluate, baseVars, moveStats, coverage, MON_N, ymOf, ymLabel, DEFAULT_SETTINGS } from "./stock.js";
 import { detectPlan, detectMonth, monthOfName, hasKodeHeader, taxFromHeader, parseSales, parseStock, parseWorkbook, readProductList } from "./reports.js";
 import { fmtRp, fmtN, esc, keyOf, taxLabel, today } from "./util.js";
-import { channelLabel, supplierChannels, waNumber, whatsappUrl, mailtoUrl, telUrl, defaultOrderQty, reorderMessage, reorderSubject } from "./contact.js";
+import { channelLabel, supplierChannels, waNumber, whatsappUrl, mailtoUrl, telUrl, defaultOrderQty, poMessage, poSubject } from "./contact.js";
 
 /* ---------- state ---------- */
 const S = {
-  items: {}, rules: [], suppliers: [], files: [], hist: [], dem: {}, moves: [], settings: { ...DEFAULT_SETTINGS }, usage: { bytes: 0 },
+  items: {}, rules: [], suppliers: [], pos: [], users: [], me: null, onOrder: new Map(), files: [], hist: [], dem: {}, moves: [], settings: { ...DEFAULT_SETTINGS }, usage: { bytes: 0 },
   derived: new Map(), alerts: [], colRules: [], dstats: new Map(), win: { PPN: [], NON: [] },
   sort: { k: "sku", d: 1 }, page: 0, per: 100, editKey: null, editRule: null, loaded: false,
 };
@@ -47,6 +47,7 @@ async function load() {
   S.settings = st.settings;
   S.usage = st.usage;
   S.suppliers = st.suppliers;
+  S.pos = st.pos;
   if (!S.loaded || !document.activeElement?.closest("#page-settings")) fillSettings();
   S.loaded = true;
   recompute();
@@ -58,8 +59,12 @@ function scheduleReload() {
 }
 
 function recompute() {
-  const r = evaluate({ items: S.items, rules: S.rules, moves: S.moves, dem: S.dem, hist: S.hist, settings: S.settings });
-  Object.assign(S, { derived: r.derived, alerts: r.alerts, colRules: r.colRules, dstats: r.dstats, win: r.win });
+  const r = evaluate({ items: S.items, rules: S.rules, moves: S.moves, dem: S.dem, hist: S.hist, settings: S.settings, pos: S.pos });
+  Object.assign(S, { derived: r.derived, alerts: r.alerts, colRules: r.colRules, dstats: r.dstats, win: r.win, onOrder: r.onOrder });
+  const drafts = S.pos.filter((p) => p.status === "draft").length;
+  $("#poBadge").textContent = drafts;
+  $("#poBadge").classList.toggle("zero", !drafts);
+  $("#poBadge").title = plural(drafts, "draft order");
   const b = $("#alertBadge");
   b.textContent = S.alerts.length;
   b.classList.toggle("zero", !S.alerts.length);
@@ -78,6 +83,8 @@ function renderAll() {
   renderDatalist();
   renderSuppliers();
   fillSupplierSelect();
+  renderPos();
+  refreshPoDialog();
   $("#ledgerCount").textContent = nf(Object.keys(S.items).length) + " items";
 }
 
@@ -159,7 +166,7 @@ function renderInv() {
     const d = S.derived.get(it.key) || { vars: {}, cols: {}, alerts: [] };
     return `<tr data-key="${esc(it.key)}" class="${d.sev ? "sev-" + d.sev : ""}">
       <td class="sku">${esc(it.sku)}</td><td class="name">${esc(it.name)}</td><td>${ledgerChip(it.tax)}</td><td><span class="chip unit">${esc(it.unit)}</span></td>
-      <td class="num"><span class="qty ${d.sev}">${fmtN(+it.qty || 0)}</span></td><td class="num">${fmtRp(+it.price || 0)}</td>
+      <td class="num"><span class="qty ${d.sev}">${fmtN(+it.qty || 0)}</span>${d.vars.on_order ? `<span class="qty-on" title="On order">+${fmtN(d.vars.on_order)}</span>` : ""}</td><td class="num">${fmtRp(+it.price || 0)}</td>
       <td class="num">${it.tax === "PPN" ? fmtRp(d.vars.price_incl) : dash}</td><td class="num">${fmtRp(d.vars.value)}</td>
       <td class="num">${it.minStock ? fmtN(+it.minStock) : dash}</td>
       <td class="name">${esc(supplierOf(it)?.company || "") || dash}</td>
@@ -181,14 +188,18 @@ function stockTarget(v) {
 }
 function compareHtml(it, v, sev) {
   const t = stockTarget(v);
-  const gap = Math.max(0, t.val - v.qty);
+  // Shortfall counts stock already on order, so an item on an open order isn't ordered again.
+  const gap = t.val - v.inventory_position;
   const u = `<small> ${esc(it.unit)}</small>`;
   return `<div class="compare">
-    <div class="cmp now ${sev}"><span class="l">Current stock</span><span class="v">${fmtN(v.qty)}${u}</span></div>
+    <div class="cmp now ${sev}"><span class="l">Current stock</span><span class="v">${fmtN(v.qty)}${u}</span>${v.on_order ? `<span class="sub">+${fmtN(v.on_order)} on order</span>` : ""}</div>
     <div class="cmp target"><span class="l">${t.label}</span><span class="v">${fmtN(t.val)}${u}</span></div>
-    <div class="cmp gap"><span class="l">${gap > 0 ? "Short by" : "Above by"}</span><span class="v">${fmtN(gap > 0 ? gap : v.qty - t.val)}${u}</span></div>
+    <div class="cmp gap"><span class="l">${gap > 0 ? "Short by" : "Covered, spare"}</span><span class="v">${fmtN(Math.abs(gap))}${u}</span></div>
   </div>`;
 }
+/** Open orders (draft, sent, partly received) that include this product. */
+const posFor = (key) => S.pos.filter((p) => ["draft", "sent", "partial"].includes(p.status) && p.lines.some((l) => l.itemKey === key));
+const poLink = (p) => `<button type="button" class="linklike" data-po="${esc(p.id)}">${esc(p.number)}</button> <span class="chip st-${p.status}">${STATUS[p.status]}</span>`;
 function supplierLine(it) {
   const sp = supplierOf(it);
   return sp
@@ -213,6 +224,7 @@ function renderAlerts() {
         <div class="nm">${esc(it.name)}</div>
         <div class="hint">${esc(r.name)} · ${v.hist_months ? v.hist_months + " months of history" : "no sales history"} · avg ${fmtN(v.avg_monthly_demand)} ${esc(it.unit)}/month</div>
         ${supplierLine(it)}
+        ${posFor(it.key).length ? `<div class="supline">On order: ${posFor(it.key).map(poLink).join(" ")}</div>` : ""}
       </div>
       <div class="side">
         ${compareHtml(it, v, sev)}
@@ -223,7 +235,7 @@ function renderAlerts() {
         </div>
       </div>
       <div class="acts">
-        <button class="btn small primary" data-reorder="${esc(it.key)}"><svg viewBox="0 0 24 24"><path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.6L21 8H6"/><circle cx="10" cy="20" r="1"/><circle cx="17" cy="20" r="1"/></svg>Reorder</button>
+        <button class="btn small primary" data-reorder="${esc(it.key)}" data-need="staff"><svg viewBox="0 0 24 24"><path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.6L21 8H6"/><circle cx="10" cy="20" r="1"/><circle cx="17" cy="20" r="1"/></svg>Reorder</button>
         <button class="btn small" data-open="${esc(it.key)}">Open</button>
       </div>
     </div>`;
@@ -245,7 +257,7 @@ function renderRules() {
       <code>${esc(r.expr)}</code>
       <div class="hint">${r.scope === "ALL" ? "All items" : r.scope === "PPN" ? "PPN only" : "Non-PPN only"}${hits != null ? " · " + nf(hits) + " items triggered" : ""}${r.enabled === false ? " · paused" : ""}</div>
       ${r._err ? `<div class="err">${esc(r._err)}</div>` : ""}
-      <div class="row"><button class="btn small" data-redit="${esc(r.id)}">Edit</button><button class="btn small" data-rtoggle="${esc(r.id)}">${r.enabled === false ? "Resume" : "Pause"}</button><span class="spacer"></span><button class="btn small danger" data-rdel="${esc(r.id)}">Delete</button></div>
+      <div class="row" data-need="admin"><button class="btn small" data-redit="${esc(r.id)}">Edit</button><button class="btn small" data-rtoggle="${esc(r.id)}">${r.enabled === false ? "Resume" : "Pause"}</button><span class="spacer"></span><button class="btn small danger" data-rdel="${esc(r.id)}">Delete</button></div>
     </div>`;
   }).join("");
 }
@@ -255,13 +267,13 @@ function renderMoves() {
   const cutoff = Date.now() - 30 * 864e5;
   const all = S.moves.filter((e) => e.t >= cutoff);
   if (!all.length) {
-    tb.innerHTML = `<tr><td colspan="6"><div class="empty">No movements recorded in the last 30 days.</div></td></tr>`;
+    tb.innerHTML = `<tr><td colspan="7"><div class="empty">No movements recorded in the last 30 days.</div></td></tr>`;
     return;
   }
   tb.innerHTML = all.slice(0, 400).map((e) => `<tr>
     <td>${new Date(e.t).toLocaleString("id-ID", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</td>
     <td class="sku">${esc(e.sku)}</td><td>${ledgerChip(e.tax)}</td><td><span class="chip ${e.type.toLowerCase()}">${e.type}</span></td>
-    <td class="num">${e.qty > 0 ? "+" : ""}${fmtN(e.qty)}</td><td class="name">${esc(e.note)}</td></tr>`).join("");
+    <td class="num">${e.qty > 0 ? "+" : ""}${fmtN(e.qty)}</td><td class="name">${esc(e.note)}</td><td>${esc(e.by || "")}</td></tr>`).join("");
 }
 
 const fmtSize = (b) => (b >= 1048576 ? (b / 1048576).toFixed(1) + " MB" : nf(Math.max(b ? 1 : 0, Math.round(b / 1024))) + " KB");
@@ -304,8 +316,8 @@ function renderFiles() {
       <td class="num">${fmtSize(f.size || 0)}</td><td>${f.at ? new Date(f.at).toLocaleDateString("id-ID") : ""}</td>
       <td><div class="row" style="flex-wrap:nowrap;gap:6px">
         ${sheet ? `<button class="btn small" data-fpv="${esc(f.id)}">Preview</button>` : ""}
-        ${f.kind && f.kind !== "attach" ? `<button class="btn small" data-frp="${esc(f.id)}">Reprocess</button>` : ""}
-        <button class="btn small danger" data-fdel="${esc(f.id)}">Delete</button></div></td></tr>`;
+        ${f.kind && f.kind !== "attach" ? `<button class="btn small" data-frp="${esc(f.id)}" data-need="staff">Reprocess</button>` : ""}
+        <button class="btn small danger" data-fdel="${esc(f.id)}" data-need="admin">Delete</button></div></td></tr>`;
   }).join("");
 }
 
@@ -452,6 +464,8 @@ $("#pager").addEventListener("click", (e) => {
   window.scrollTo({ top: 0 });
 });
 $("#alertList").addEventListener("click", (e) => {
+  const po = e.target.closest("[data-po]");
+  if (po) return openPo(po.dataset.po);
   const ro = e.target.closest("[data-reorder]");
   if (ro) return openReorder(ro.dataset.reorder);
   const b = e.target.closest("[data-open]");
@@ -511,7 +525,7 @@ function testRule() {
   for (const it of Object.values(S.items)) {
     if (scope !== "ALL" && it.tax !== scope) continue;
     n++;
-    const V = baseVars(it, ms, S.dstats.get(it.key), S.settings);
+    const V = baseVars(it, ms, S.dstats.get(it.key), S.settings, S.onOrder.get(it.key) || 0);
     for (const r of S.colRules) {
       if (r._ast && r.id !== S.editRule) { try { V[colVar(r.name)] = evalAst(r._ast, V); } catch {} }
     }
@@ -873,7 +887,7 @@ function renderSuppliers() {
   el.innerHTML = rows.map((x) => `<div class="sup-card" id="sup-${esc(x.id)}">
     <div class="sup-head"><span class="avatar">${esc(initial(x.company))}</span>
       <div class="t"><h3>${esc(x.company)}</h3><div class="pic">${x.contact ? "PIC: " + esc(x.contact) : "No person in charge"}</div></div>
-      <button class="btn small" data-sedit="${esc(x.id)}">Edit</button></div>
+      <button class="btn small" data-sedit="${esc(x.id)}" data-need="staff">Edit</button></div>
     <div class="contacts">${contactRows(x)}</div>
     ${x.notes ? `<div class="hint">${esc(x.notes)}</div>` : ""}
     <div class="sup-foot"><span>${plural(counts.get(x.id) || 0, "product")}</span>${counts.get(x.id) ? `<span class="spacer"></span><button class="btn small" data-sitems="${esc(x.company)}">View products</button>` : ""}</div>
@@ -936,18 +950,24 @@ $("#supForm").addEventListener("submit", async (ev) => {
   }
 });
 
-/* ---------- reorder ---------- */
-let roKey = null, roMsgEdited = false;
+/* ---------- reorder: add to a purchase order ---------- */
+const STATUS = { draft: "Draft", sent: "Sent", partial: "Partly received", received: "Received", closed: "Closed short", cancelled: "Cancelled" };
+let roKey = null;
 function openReorder(key) {
   roKey = key;
-  roMsgEdited = false;
   const it = S.items[key];
   if (!it) return;
   const d = S.derived.get(key);
-  const sev = d?.sev || "";
   $("#roTitle").textContent = `Reorder ${it.sku}`;
   $("#roSub").textContent = it.name + " · " + taxLabel(it.tax);
-  $("#roCompare").innerHTML = compareHtml(it, d.vars, sev);
+  $("#roCompare").innerHTML = compareHtml(it, d.vars, d.sev || "");
+  const open = posFor(key);
+  $("#roOnOrder").innerHTML = open.length
+    ? `<div class="onorder"><span>Already on ${open.length === 1 ? "an open order" : "open orders"}:</span>${open.map((p) => {
+        const l = p.lines.find((x) => x.itemKey === key);
+        return `<span>${poLink(p)} · ${fmtN(l.qty - l.received)} ${esc(it.unit)}${p.status === "draft" ? " (not sent yet)" : " still to come"}</span>`;
+      }).join("")}</div>`
+    : "";
   $("#roQty").value = defaultOrderQty(d.vars) || "";
   renderReorderSupplier();
   $("#roDlg").showModal();
@@ -956,12 +976,11 @@ function renderReorderSupplier() {
   const it = S.items[roKey];
   const sp = supplierOf(it);
   const box = $("#roSupplier");
-  $("#roMsgWrap").hidden = !sp;
   if (!sp) {
     box.innerHTML = `<div class="ro-sup"><strong>No supplier assigned to ${esc(it.sku)}</strong>
       ${S.suppliers.length ? `<div class="field"><label for="roPick">Assign a supplier</label><select id="roPick"><option value="">Choose…</option>${S.suppliers.map((x) => `<option value="${esc(x.id)}">${esc(x.company)}</option>`).join("")}</select></div>` : `<span class="hint">You have no suppliers yet.</span>`}
       <div><button type="button" class="btn small" id="roNewSup">Add a new supplier</button></div></div>`;
-    $("#roActions").innerHTML = "";
+    $("#roActions").innerHTML = `<span class="spacer"></span><button type="button" class="btn" data-ro="cancel">Cancel</button>`;
     $("#roNote").textContent = "";
     $("#roPick")?.addEventListener("change", (e) => e.target.value && assignReorderSupplier(e.target.value));
     $("#roNewSup").onclick = () => { $("#roDlg").close(); openSupplier(null, (id) => assignReorderSupplier(id, true)); };
@@ -970,8 +989,7 @@ function renderReorderSupplier() {
   box.innerHTML = `<div class="ro-sup">
     <div class="sup-head"><span class="avatar">${esc(initial(sp.company))}</span>
       <div class="t"><h3>${esc(sp.company)}</h3><div class="pic">${sp.contact ? "PIC: " + esc(sp.contact) : "No person in charge"}</div></div>
-      <button type="button" class="btn small" id="roViewSup">View supplier</button></div>
-    <div class="contacts">${contactRows(sp)}</div></div>`;
+      <button type="button" class="btn small" id="roViewSup">View supplier</button></div></div>`;
   $("#roViewSup").onclick = () => {
     $("#roDlg").close();
     showTab("suppliers");
@@ -982,12 +1000,12 @@ function renderReorderSupplier() {
     card?.classList.add("flash");
     setTimeout(() => card?.classList.remove("flash"), 1800);
   };
-  if (!roMsgEdited) $("#roMsg").value = reorderMessage({ supplier: sp, item: it, qty: +$("#roQty").value || 0 });
-  $("#roActions").innerHTML = supplierChannels(sp).map((ch) => {
-    const label = { whatsapp: "Send on WhatsApp", wechat: "Copy for WeChat", email: "Send email", phone: "Call" }[ch];
-    return `<button type="button" class="btn ch-${ch}${sp.preferred === ch ? " pref" : ""}" data-ch="${ch}">${label}</button>`;
-  }).join("");
-  $("#roNote").textContent = supplierChannels(sp).includes("wechat") ? "WeChat can't be opened with a message from a browser: the message is copied, then paste it in WeChat." : "";
+  const draft = S.pos.find((p) => p.status === "draft" && p.supplierId === sp.id);
+  $("#roNote").textContent = draft
+    ? `Will be added to draft ${draft.number} for ${sp.company} (${plural(draft.lines.length, "line")} so far). Send it from Purchase orders when it's complete.`
+    : `A new draft order will be started for ${sp.company}. Add other items, then send it from Purchase orders.`;
+  $("#roActions").innerHTML = `<span class="spacer"></span><button type="button" class="btn" data-ro="cancel">Cancel</button>
+    <button type="button" class="btn" data-ro="open">Add &amp; open order</button><button type="button" class="btn primary" data-ro="add">Add to order</button>`;
 }
 async function assignReorderSupplier(id, reopen = false) {
   try {
@@ -998,29 +1016,383 @@ async function assignReorderSupplier(id, reopen = false) {
     else renderReorderSupplier();
   } catch (e) { handleErr(e); }
 }
-$("#roQty").addEventListener("input", () => { if (!roMsgEdited) renderReorderSupplier(); });
-$("#roMsg").addEventListener("input", () => (roMsgEdited = true));
 $("#roClose").onclick = () => $("#roDlg").close();
-$("#roActions").addEventListener("click", (e) => {
-  const b = e.target.closest("[data-ch]");
+$("#roActions").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-ro]");
   if (!b) return;
-  const it = S.items[roKey], sp = supplierOf(it), msg = $("#roMsg").value;
-  if (!(+$("#roQty").value > 0)) { toast("Enter an order quantity first."); return; }
-  const ch = b.dataset.ch;
-  if (ch === "whatsapp") window.open(whatsappUrl(sp.whatsapp, msg), "_blank", "noopener");
-  else if (ch === "email") location.href = mailtoUrl(sp.email, reorderSubject(it), msg);
-  else if (ch === "phone") location.href = telUrl(sp.phone);
-  else if (ch === "wechat") copyText(msg, "Order message").then(() => { $("#roNote").textContent = `Message copied. Open WeChat and send it to ${sp.wechat}.`; });
+  if (b.dataset.ro === "cancel") return $("#roDlg").close();
+  const it = S.items[roKey], qty = +$("#roQty").value;
+  if (!(qty > 0)) { toast("Enter an order quantity first."); $("#roQty").focus(); return; }
+  b.disabled = true;
+  try {
+    const r = await api.poAddLine(roKey, qty);
+    $("#roDlg").close();
+    toast(`${it.sku}: ${fmtN(qty)} ${it.unit} ${r.merged ? "added to the line on" : "added to"} ${r.number}`);
+    await load();
+    if (b.dataset.ro === "open") openPo(r.id);
+  } catch (er) { handleErr(er); } finally { b.disabled = false; }
+});
+$("#roOnOrder").addEventListener("click", (e) => {
+  const po = e.target.closest("[data-po]");
+  if (po) { $("#roDlg").close(); openPo(po.dataset.po); }
 });
 
-/* ---------- boot ---------- */
-renderAll();
-fillSettings();
-load().catch((e) => {
-  setStatus("down", "Server unreachable");
-  handleErr(e);
+/* ---------- purchase orders ---------- */
+let poFilter = "open";
+const poTotal = (lines) => lines.reduce((a, l) => a + l.qty * l.price, 0);
+const fmtDate = (t) => (t ? new Date(t).toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" }) : "");
+const supplierById = (id) => S.suppliers.find((x) => x.id === id);
+function renderPos() {
+  const match = { open: ["draft", "sent", "partial"], draft: ["draft"], sent: ["sent", "partial"], done: ["received", "closed", "cancelled"], all: Object.keys(STATUS) }[poFilter];
+  const rows = S.pos.filter((p) => match.includes(p.status));
+  const tb = $("#poTbl tbody");
+  if (!rows.length) {
+    tb.innerHTML = `<tr><td colspan="8"><div class="empty">${S.pos.length ? "No orders here." : `<strong>No purchase orders yet</strong><span>Use “Reorder” on an alert, or “New order”, to start one.</span>`}</div></td></tr>`;
+    return;
+  }
+  tb.innerHTML = rows.map((p) => {
+    const sp = supplierById(p.supplierId);
+    const ord = p.lines.reduce((a, l) => a + l.qty, 0), rec = p.lines.reduce((a, l) => a + l.received, 0);
+    const pct = ord ? Math.round((rec / ord) * 100) : 0;
+    return `<tr data-po="${esc(p.id)}"><td class="sku">${esc(p.number)}</td><td class="name">${esc(sp?.company || "—")}</td>
+      <td><span class="chip st-${p.status}">${STATUS[p.status]}</span></td><td class="num">${p.lines.length}</td><td class="num">${fmtRp(poTotal(p.lines))}</td>
+      <td>${p.status === "draft" ? '<span class="muted">—</span>' : `<span class="progress"><span class="bar"><i style="width:${pct}%"></i></span>${pct}%</span>`}</td>
+      <td>${fmtDate(p.createdAt)}<div class="hint">${esc(p.createdBy)}</div></td><td>${p.sentAt ? fmtDate(p.sentAt) + `<div class="hint">${esc(channelLabel(p.sentVia) === "other" ? "" : channelLabel(p.sentVia))}</div>` : '<span class="muted">—</span>'}</td></tr>`;
+  }).join("");
+}
+$("#poSeg").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-f]");
+  if (!b) return;
+  poFilter = b.dataset.f;
+  $("#poSeg").querySelectorAll("button").forEach((x) => x.setAttribute("aria-selected", String(x === b)));
+  renderPos();
 });
-subscribe(scheduleReload, (s) => {
-  if (s === "live") { setStatus("live", "Live · synced"); scheduleReload(); }
-  else setStatus("down", "Reconnecting…");
+$("#poTbl").addEventListener("click", (e) => {
+  const tr = e.target.closest("tr[data-po]");
+  if (tr) openPo(tr.dataset.po);
+});
+$("#poNew").onclick = () => {
+  if (!S.suppliers.length) { toast("Add a supplier first."); showTab("suppliers"); return; }
+  $("#poNewPick").innerHTML = `<option value="">Choose a supplier…</option>` + S.suppliers.map((x) => `<option value="${esc(x.id)}">${esc(x.company)}</option>`).join("");
+  $("#poNewDlg").showModal();
+};
+$("#poNewCancel").onclick = () => $("#poNewDlg").close();
+$("#poNewGo").onclick = async () => {
+  const id = $("#poNewPick").value;
+  if (!id) { toast("Choose a supplier."); return; }
+  const existing = S.pos.find((p) => p.status === "draft" && p.supplierId === id);
+  try {
+    const r = existing ? { id: existing.id } : await api.poCreate(id);
+    $("#poNewDlg").close();
+    if (existing) toast(`${existing.number} is already a draft for this supplier. Add to it.`);
+    await load();
+    openPo(r.id);
+  } catch (e) { handleErr(e); }
+};
+
+// The dialog edits a local copy of a draft; nothing is saved until "Save" or "Send".
+let poId = null, poEdit = null, poDirty = false, poSendOpen = false;
+const canEdit = () => S.me && S.me.role !== "viewer";
+function openPo(id) {
+  poId = id;
+  poEdit = null;
+  poDirty = false;
+  poSendOpen = false;
+  $("#poErr").textContent = "";
+  renderPoDialog();
+  if (!$("#poDlg").open) $("#poDlg").showModal();
+}
+function refreshPoDialog() {
+  if (!$("#poDlg").open || !poId) return;
+  if (!S.pos.some((p) => p.id === poId)) { $("#poDlg").close(); toast("That order was deleted."); return; }
+  if (!poDirty) { poEdit = null; renderPoDialog(); }
+}
+function renderPoDialog() {
+  const p = S.pos.find((x) => x.id === poId);
+  if (!p) return;
+  const sp = supplierById(p.supplierId);
+  const draft = p.status === "draft", receiving = p.status === "sent" || p.status === "partial";
+  if (draft && !poEdit) poEdit = { lines: p.lines.map((l) => ({ ...l })), note: p.note };
+  const lines = draft ? poEdit.lines : p.lines;
+  $("#poTitle").innerHTML = `${esc(p.number)} <span class="chip st-${p.status}">${STATUS[p.status]}</span>`;
+  $("#poMeta").textContent = [`Created ${fmtDate(p.createdAt)}${p.createdBy ? " by " + p.createdBy : ""}`, p.sentAt ? `sent ${fmtDate(p.sentAt)}${p.sentVia && p.sentVia !== "other" ? " via " + channelLabel(p.sentVia) : ""}` : "", p.closedAt ? `finished ${fmtDate(p.closedAt)}` : ""].filter(Boolean).join(" · ");
+  $("#poSupplier").innerHTML = sp ? `<div class="ro-sup"><div class="sup-head"><span class="avatar">${esc(initial(sp.company))}</span>
+      <div class="t"><h3>${esc(sp.company)}</h3><div class="pic">${sp.contact ? "PIC: " + esc(sp.contact) : "No person in charge"}</div></div></div>
+      <div class="contacts">${contactRows(sp)}</div></div>` : "";
+  const edit = draft && canEdit();
+  // On phones the SKU, ledger and money columns are hidden (class hide-sm) so ordering and receiving fit the screen.
+  $("#poLines thead").innerHTML = `<tr><th class="hide-sm">SKU</th><th>Product</th><th class="hide-sm">Ledger</th><th class="num">Ordered</th>${draft ? "" : `<th class="num">Received</th>`}${receiving && canEdit() ? `<th class="num">Receive now</th>` : ""}<th class="num hide-sm">Price</th><th class="num hide-sm">Subtotal</th>${edit ? "<th></th>" : ""}</tr>`;
+  $("#poLines tbody").innerHTML = lines.length ? lines.map((l, i) => {
+    const left = Math.max(0, l.qty - l.received);
+    return `<tr><td class="sku hide-sm">${esc(l.sku)}</td><td class="name">${esc(l.name)}<div class="hint mono sm-only">${esc(l.sku)}</div></td><td class="hide-sm">${ledgerChip(l.tax)}</td>
+      <td class="num">${edit ? `<input type="number" min="1" step="1" value="${l.qty}" data-li="${i}" data-lf="qty" aria-label="Quantity for ${esc(l.sku)}">` : fmtN(l.qty)} ${esc(l.unit)}</td>
+      ${draft ? "" : `<td class="num">${fmtN(l.received)}</td>`}
+      ${receiving && canEdit() ? `<td class="num">${left ? `<input type="number" min="0" max="${left}" step="1" value="${left}" data-rid="${esc(l.id)}" aria-label="Received now for ${esc(l.sku)}">` : '<span class="okmsg">✓ complete</span>'}</td>` : ""}
+      <td class="num hide-sm">${edit ? `<input type="number" min="0" step="1" value="${l.price}" data-li="${i}" data-lf="price" aria-label="Price for ${esc(l.sku)}">` : fmtRp(l.price)}</td>
+      <td class="num hide-sm">${fmtRp(l.qty * l.price)}</td>${edit ? `<td><button type="button" class="icon-btn" data-ldel="${i}" aria-label="Remove ${esc(l.sku)}"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></td>` : ""}</tr>`;
+  }).join("") : `<tr><td colspan="9"><div class="empty">No products on this order yet. Add one below.</div></td></tr>`;
+  const span = 4 + (draft ? 0 : 1) + (receiving && canEdit() ? 1 : 0) + 1; // columns before Subtotal
+  $("#poLines tfoot").innerHTML = lines.length ? `<tr><td colspan="${span}">Total</td><td class="num">${fmtRp(poTotal(lines))}</td>${edit ? "<td></td>" : ""}</tr>` : "";
+  $("#poAddRow").hidden = !edit;
+  $("#poNote").value = draft ? poEdit.note : p.note;
+  $("#poNote").disabled = !edit;
+  $("#poNoteWrap").hidden = !draft && !p.note;
+  $("#poSend").hidden = !(poSendOpen && sp);
+  if (poSendOpen && sp) renderSendBox(p, sp);
+  let acts = "";
+  if (draft) acts = `<button type="button" class="btn ghost-danger" data-pa="delete" data-need="staff">Delete draft</button><span class="spacer"></span>
+      <button type="button" class="btn" data-pa="save" data-need="staff" ${poDirty ? "" : "disabled"}>Save changes</button>
+      <button type="button" class="btn primary" data-pa="send" data-need="staff" ${lines.length ? "" : "disabled"}>${poSendOpen ? "Hide message" : "Send to supplier…"}</button>`;
+  else if (receiving) acts = `<button type="button" class="btn ghost-danger" data-pa="close" data-need="staff">${p.status === "sent" ? "Cancel order" : "Close: no more coming"}</button><span class="spacer"></span>
+      <button type="button" class="btn" data-pa="resend" data-need="staff">${poSendOpen ? "Hide message" : "Message again"}</button>
+      <button type="button" class="btn primary" data-pa="receive" data-need="staff">Book goods received</button>`;
+  else acts = `<span class="spacer"></span><button type="button" class="btn" data-pa="x">Close</button>`;
+  $("#poActions").innerHTML = acts;
+}
+function renderSendBox(p, sp) {
+  const draft = p.status === "draft";
+  const po = draft ? { ...p, lines: poEdit.lines, note: poEdit.note } : p;
+  if (!$("#poMsg").dataset.for || $("#poMsg").dataset.for !== p.id + (draft ? ":draft" : ":sent")) {
+    $("#poMsg").value = poMessage({ supplier: sp, po });
+    $("#poMsg").dataset.for = p.id + (draft ? ":draft" : ":sent");
+  }
+  const label = { whatsapp: "Send on WhatsApp", wechat: "Copy for WeChat", email: "Send email", phone: "Call" };
+  $("#poChannels").innerHTML = supplierChannels(sp).map((ch) => `<button type="button" class="btn ch-${ch}${sp.preferred === ch ? " pref" : ""}" data-ch="${ch}">${label[ch]}</button>`).join("") +
+    (draft ? `<span class="spacer"></span><button type="button" class="btn" data-ch="other">Mark as sent (sent another way)</button>` : "");
+  $("#poSendNote").textContent = (draft ? "The order is marked as sent when you use one of these buttons. " : "") +
+    (supplierChannels(sp).includes("wechat") ? "WeChat: the message is copied; paste it in WeChat." : "");
+}
+$("#poClose").onclick = () => {
+  if (poDirty && !confirm("Discard your unsaved changes to this order?")) return;
+  $("#poDlg").close();
+};
+$("#poDlg").addEventListener("cancel", (e) => {
+  if (poDirty && !confirm("Discard your unsaved changes to this order?")) e.preventDefault();
+});
+$("#poDlg").addEventListener("close", () => { poDirty = false; poId = null; $("#poMsg").dataset.for = ""; });
+function markDirty() {
+  poDirty = true;
+  poSendOpen = false;
+  $("#poMsg").dataset.for = "";
+  renderPoDialog();
+}
+$("#poLines").addEventListener("change", (e) => {
+  const t = e.target;
+  if (t.dataset.li == null) return;
+  poEdit.lines[+t.dataset.li][t.dataset.lf] = Math.max(0, +t.value || 0);
+  markDirty();
+});
+$("#poLines").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-ldel]");
+  if (!b) return;
+  poEdit.lines.splice(+b.dataset.ldel, 1);
+  markDirty();
+});
+$("#poNote").addEventListener("input", () => {
+  if (!poEdit) return;
+  poEdit.note = $("#poNote").value;
+  poDirty = true;
+  poSendOpen = false;
+  $("#poSend").hidden = true;
+  $("#poMsg").dataset.for = "";
+  $("#poActions [data-pa=save]")?.removeAttribute("disabled");
+});
+$("#poAddBtn").onclick = () => {
+  const it = findItem($("#poAddItem").value), qty = +$("#poAddQty").value || 1;
+  if (!it) { $("#poErr").textContent = "Pick a product from the list."; return; }
+  $("#poErr").textContent = "";
+  const ex = poEdit.lines.find((l) => l.itemKey === it.key);
+  if (ex) ex.qty += qty;
+  else poEdit.lines.push({ itemKey: it.key, sku: it.sku, tax: it.tax, name: it.name, unit: it.unit, qty, received: 0, price: +it.price || 0 });
+  $("#poAddItem").value = "";
+  $("#poAddQty").value = "";
+  markDirty();
+};
+async function savePoDraft() {
+  await api.poSave(poId, { note: poEdit.note, lines: poEdit.lines.map((l) => ({ itemKey: l.itemKey, qty: l.qty, price: l.price })) });
+  poDirty = false;
+  poEdit = null;
+  await load();
+}
+$("#poActions").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-pa]");
+  if (!b) return;
+  const p = S.pos.find((x) => x.id === poId);
+  $("#poErr").textContent = "";
+  try {
+    switch (b.dataset.pa) {
+      case "x": return $("#poDlg").close();
+      case "save": await savePoDraft(); toast("Order saved"); break;
+      case "send":
+      case "resend":
+        if (!poSendOpen && poDirty) await savePoDraft();
+        poSendOpen = !poSendOpen;
+        renderPoDialog();
+        break;
+      case "delete":
+        if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = "Confirm: delete draft"; return; }
+        await api.poDelete(poId); poDirty = false; $("#poDlg").close(); toast(`${p.number} deleted`); await load(); break;
+      case "close":
+        if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = p.status === "sent" ? "Confirm: cancel order" : "Confirm: nothing more is coming"; return; }
+        await api.poClose(poId); toast(`${p.number} ${p.status === "sent" ? "cancelled" : "closed"}`); await load(); break;
+      case "receive": {
+        const lines = [...document.querySelectorAll("#poLines [data-rid]")].map((i) => ({ id: i.dataset.rid, qty: +i.value || 0 })).filter((l) => l.qty > 0);
+        if (!lines.length) { $("#poErr").textContent = "Enter what arrived in “Receive now”."; return; }
+        b.disabled = true;
+        const r = await api.poReceive(poId, lines);
+        toast(r.status === "received" ? `${p.number} fully received. Stock updated.` : `Receipt booked on ${p.number}. Stock updated; the rest is still to come.`);
+        await load();
+        break;
+      }
+    }
+  } catch (er) { $("#poErr").textContent = er.message; b.disabled = false; }
+});
+$("#poChannels").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-ch]");
+  if (!b) return;
+  const p = S.pos.find((x) => x.id === poId), sp = supplierById(p.supplierId), msg = $("#poMsg").value, ch = b.dataset.ch;
+  // Open the channel straight away (inside the click) so the browser doesn't block the new window.
+  if (ch === "whatsapp") window.open(whatsappUrl(sp.whatsapp, msg), "_blank", "noopener");
+  else if (ch === "email") location.href = mailtoUrl(sp.email, poSubject(p, sp.company), msg);
+  else if (ch === "phone") location.href = telUrl(sp.phone);
+  else if (ch === "wechat") await copyText(msg, "Order message");
+  if (p.status !== "draft") return;
+  try {
+    await api.poSend(p.id, ch);
+    poSendOpen = false;
+    toast(`${p.number} marked as sent${ch === "wechat" ? ". Paste the message in WeChat to " + sp.wechat : ""}`);
+    await load();
+  } catch (er) { $("#poErr").textContent = er.message; }
+});
+
+/* ---------- users (admin) ---------- */
+async function loadUsers() {
+  if (S.me?.role !== "admin") return;
+  try { S.users = await api.users(); renderUsers(); } catch (e) { handleErr(e); }
+}
+function renderUsers() {
+  $("#uTbl tbody").innerHTML = S.users.map((u) => `<tr>
+    <td><div class="row" style="gap:10px;flex-wrap:nowrap"><span class="avatar sm">${esc(initial(u.name))}</span><strong>${esc(u.name)}</strong>${u.id === S.me.id ? '<span class="chip unit">You</span>' : ""}</div></td>
+    <td class="sku">${esc(u.username)}</td><td><span class="chip ${u.role === "admin" ? "col" : u.role === "staff" ? "non" : "unit"}">${u.role[0].toUpperCase() + u.role.slice(1)}</span></td>
+    <td>${u.active ? '<span class="okmsg">Active</span>' : '<span class="muted">Switched off</span>'}</td><td>${fmtDate(u.createdAt)}</td>
+    <td><button class="btn small" data-uedit="${esc(u.id)}">Edit</button></td></tr>`).join("");
+}
+let uEdit = null;
+function openUser(id) {
+  uEdit = id;
+  const u = id ? S.users.find((x) => x.id === id) : { name: "", username: "", role: "staff", active: true };
+  $("#uTitle").textContent = id ? "Edit user" : "Add user";
+  $("#uName").value = u.name;
+  $("#uUser").value = u.username;
+  $("#uUser").disabled = !!id;
+  $("#uRole").value = u.role;
+  $("#uPass").value = "";
+  $("#uPass").required = !id;
+  $("#uPassL").textContent = id ? "New password (leave empty to keep the current one)" : "Password (at least 8 characters)";
+  $("#uActive").checked = u.active;
+  $("#uActiveWrap").hidden = !id;
+  $("#uHint").textContent = id ? "Changing the role, switching the account off or setting a new password signs this user out everywhere." : "Give the user their username and password; they can change the password after signing in.";
+  $("#uErr").textContent = "";
+  $("#uDlg").showModal();
+}
+$("#uAdd").onclick = () => openUser(null);
+$("#uTbl").addEventListener("click", (e) => { const b = e.target.closest("[data-uedit]"); if (b) openUser(b.dataset.uedit); });
+$("#uCancel").onclick = $("#uClose").onclick = () => $("#uDlg").close();
+$("#uForm").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const body = { name: $("#uName").value, role: $("#uRole").value };
+  if ($("#uPass").value) body.password = $("#uPass").value;
+  $("#uSave").disabled = true;
+  try {
+    if (uEdit) await api.updateUser(uEdit, { ...body, active: $("#uActive").checked });
+    else await api.createUser({ ...body, username: $("#uUser").value });
+    $("#uDlg").close();
+    toast("User saved");
+    if (uEdit === S.me.id && body.role !== "admin") return location.reload();
+    loadUsers();
+  } catch (e) { $("#uErr").textContent = e.message; } finally { $("#uSave").disabled = false; }
+});
+
+/* ---------- own password ---------- */
+$("#pwBtn").onclick = () => { $("#pwCur").value = ""; $("#pwNew").value = ""; $("#pwErr").textContent = ""; $("#pwDlg").showModal(); };
+$("#pwCancel").onclick = $("#pwClose").onclick = () => $("#pwDlg").close();
+$("#pwForm").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  try {
+    await api.changePassword($("#pwCur").value, $("#pwNew").value);
+    $("#pwDlg").close();
+    toast("Password changed. Other devices were signed out.");
+  } catch (e) { $("#pwErr").textContent = e.message; }
+});
+
+/* ---------- sign in & boot ---------- */
+let events = null;
+async function showAuth() {
+  document.body.classList.remove("booting");
+  document.body.classList.add("signed-out");
+  $("#auth").hidden = false;
+  let setup = false;
+  try { setup = (await api.authStatus()).setup; } catch { $("#lErr").textContent = "Can't reach the server. Is it running?"; }
+  $("#setupForm").hidden = !setup;
+  $("#loginForm").hidden = setup;
+  $("#authSub").textContent = setup ? "First-time setup" : "Sign in to continue";
+  (setup ? $("#suCode") : $("#lUser")).focus();
+}
+$("#loginForm").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  $("#lGo").disabled = true;
+  try {
+    await api.login($("#lUser").value, $("#lPass").value);
+    location.reload();
+  } catch (e) {
+    $("#lErr").textContent = e.message;
+    $("#lPass").select();
+  } finally { $("#lGo").disabled = false; }
+});
+$("#setupForm").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  $("#suGo").disabled = true;
+  try {
+    await api.setup({ code: $("#suCode").value, name: $("#suName").value, username: $("#suUser").value, password: $("#suPass").value });
+    location.reload();
+  } catch (e) { $("#suErr").textContent = e.message; } finally { $("#suGo").disabled = false; }
+});
+$("#logoutBtn").onclick = async () => {
+  try { await api.logout(); } catch {}
+  location.reload();
+};
+setUnauthorizedHandler(() => {
+  if (!S.me) return;
+  S.me = null;
+  events?.close();
+  document.querySelectorAll("dialog[open]").forEach((d) => d.close());
+  toast("You were signed out. Please sign in again.");
+  showAuth();
+});
+
+function startApp(me) {
+  S.me = me;
+  document.body.classList.remove("booting", "signed-out");
+  document.body.classList.add("role-" + me.role);
+  $("#auth").hidden = true;
+  $("#meName").textContent = me.name;
+  $("#meRole").textContent = me.role;
+  $("#meAvatar").textContent = initial(me.name);
+  const cur = location.hash.slice(1);
+  if (cur === "users" && me.role !== "admin") showTab("inventory");
+  if (cur === "users") loadUsers();
+  renderAll();
+  fillSettings();
+  load().catch((e) => { setStatus("down", "Server unreachable"); handleErr(e); });
+  events = subscribe(scheduleReload, (st) => {
+    if (st === "live") { setStatus("live", "Live · synced"); scheduleReload(); }
+    else setStatus("down", "Reconnecting…");
+  });
+}
+document.querySelector('[data-tab="users"]').addEventListener("click", loadUsers);
+window.addEventListener("hashchange", () => { if (location.hash === "#users") loadUsers(); });
+
+api.me().then(startApp).catch((e) => {
+  if (e.status === 401) showAuth();
+  else { document.body.classList.remove("booting"); setStatus("down", "Server unreachable"); handleErr(e); }
 });

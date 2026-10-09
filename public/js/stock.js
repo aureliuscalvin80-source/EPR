@@ -116,7 +116,7 @@ export function demandStats(items, dem, hist, settings) {
 }
 
 /** All variables a formula can use for one item. */
-export function baseVars(it, ms, ds, settings) {
+export function baseVars(it, ms, ds, settings, onOrder = 0) {
   const rate = +settings.ppnRate || 0;
   const isP = it.tax === "PPN";
   const price = +it.price || 0;
@@ -135,6 +135,8 @@ export function baseVars(it, ms, ds, settings) {
   const rop = Math.ceil(dd * (L + R) + ss);
   const up = Math.ceil(dd * (L + 2 * R) + ss);
   const daily = dd > 0 ? dd : adoAvg;
+  // Inventory position = on hand + already ordered. Reorder decisions use it so nothing is ordered twice.
+  const position = qty + onOrder;
   return {
     qty, price, price_excl: excl, price_incl: withTax, value: qty * excl,
     min_stock: +it.minStock || 0, is_ppn: isP ? 1 : 0, is_set: it.unit === "SET" ? 1 : 0,
@@ -142,7 +144,8 @@ export function baseVars(it, ms, ds, settings) {
     hist_months: d.n, stockout_months: d.so, avg_monthly_demand: d.mean, sd_monthly_demand: d.sd,
     avg_daily_demand: dd, review_period: R, service_z: Z,
     safety_stock: ss, reorder_point: rop, order_up_to: up,
-    suggested_order: qty < rop ? Math.max(0, up - qty) : 0, mixed_units: d.mixed,
+    on_order: onOrder, inventory_position: position,
+    suggested_order: position < rop ? Math.max(0, up - position) : 0, mixed_units: d.mixed,
     days_cover: daily > 0 ? qty / daily : 9999,
   };
 }
@@ -166,16 +169,27 @@ const inScope = (r, it) => r.scope === "ALL" || r.scope === it.tax;
  * Evaluate every rule against every item.
  * Column rules run first, in order, so later formulas can reference earlier columns as col_<name>.
  */
-export function evaluate({ items, rules, moves, dem, hist, settings, now = Date.now() }) {
+/** Quantity still to arrive per item from sent and partly received purchase orders. */
+export function onOrderByItem(pos) {
+  const m = new Map();
+  for (const p of pos || []) {
+    if (p.status !== "sent" && p.status !== "partial") continue;
+    for (const l of p.lines) m.set(l.itemKey, (m.get(l.itemKey) || 0) + Math.max(0, l.qty - l.received));
+  }
+  return m;
+}
+
+export function evaluate({ items, rules, moves, dem, hist, settings, pos = [], now = Date.now() }) {
   compileRules(rules);
   const ms = moveStats(moves, now);
+  const onOrder = onOrderByItem(pos);
   const { stats: dstats, win } = demandStats(items, dem, hist, settings);
   const colRules = rules.filter((r) => r.kind === "column" && r.enabled !== false);
   const alertRules = rules.filter((r) => r.kind === "alert" && r.enabled !== false && r._ast);
   const derived = new Map();
   const alerts = [];
   for (const it of Object.values(items)) {
-    const V = baseVars(it, ms, dstats.get(it.key), settings);
+    const V = baseVars(it, ms, dstats.get(it.key), settings, onOrder.get(it.key) || 0);
     const d = { vars: V, cols: {}, alerts: [] };
     for (const r of colRules) {
       if (!r._ast || !inScope(r, it)) { d.cols[r.id] = null; continue; }
@@ -199,5 +213,5 @@ export function evaluate({ items, rules, moves, dem, hist, settings, now = Date.
     derived.set(it.key, d);
   }
   alerts.sort((a, b) => (a.r.severity === "crit" ? 0 : 1) - (b.r.severity === "crit" ? 0 : 1) || a.it.sku.localeCompare(b.it.sku));
-  return { derived, alerts, colRules, dstats, win, ms };
+  return { derived, alerts, colRules, dstats, win, ms, onOrder };
 }

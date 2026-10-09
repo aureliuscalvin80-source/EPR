@@ -33,19 +33,21 @@ export const telUrl = (raw) => "tel:" + String(raw || "").replace(/[^\d+]/g, "")
 /** Quantity to propose: the stock model's suggestion, else enough to reach min stock. */
 export function defaultOrderQty(v) {
   if (v.suggested_order > 0) return v.suggested_order;
-  return Math.max(0, Math.ceil((v.min_stock || 0) - v.qty));
+  return Math.max(0, Math.ceil((v.min_stock || 0) - v.qty - (v.on_order || 0)));
 }
 
-export function reorderMessage({ supplier, item, qty }) {
+/** Order message listing every line of a purchase order. */
+export function poMessage({ supplier, po }) {
   const hello = supplier?.contact ? `Hello ${supplier.contact},` : "Hello,";
+  const lines = po.lines.map((l) => `- ${l.sku} ${l.name}: ${l.qty} ${l.unit}`).join("\n");
   return `${hello}
 
-We would like to order:
-- ${item.sku} ${item.name}: ${qty} ${item.unit}
-
+Purchase order ${po.number}:
+${lines}
+${po.note ? "\n" + po.note + "\n" : ""}
 Please confirm the price and delivery time.
 
 Thank you.`;
 }
 
-export const reorderSubject = (item) => `Purchase order: ${item.sku} ${item.name}`;
+export const poSubject = (po, company) => `Purchase order ${po.number}${company ? " – " + company : ""}`;

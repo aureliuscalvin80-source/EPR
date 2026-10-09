@@ -12,7 +12,30 @@
 <script src="/vendor/xlsx/xlsx.full.min.js" defer></script>
 <script type="module" src="/js/app.js"></script>
 </head>
-<body>
+<body class="booting">
+<!-- SIGN IN / FIRST-RUN SETUP -->
+<div class="auth" id="auth" hidden>
+  <div class="auth-card">
+    <div class="brand"><span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 8l7-3.5L19 8v8l-7 3.5L5 16z"/><path d="M5 8l7 3.5L19 8M12 11.5V19.5"/></svg></span><div class="brand-t"><strong>Sparepart ERP</strong><span id="authSub">Sign in to continue</span></div></div>
+    <form id="loginForm" class="auth-form">
+      <div class="field"><label for="lUser">Username</label><input id="lUser" autocomplete="username" autocapitalize="none" required></div>
+      <div class="field"><label for="lPass">Password</label><input id="lPass" type="password" autocomplete="current-password" required></div>
+      <div class="err" id="lErr" role="alert"></div>
+      <button class="btn primary block" id="lGo">Sign in</button>
+      <p class="hint">Forgot your password? Ask an admin to reset it.</p>
+    </form>
+    <form id="setupForm" class="auth-form" hidden>
+      <p class="note">Welcome! Create the first <strong>admin</strong> account. The setup code is printed in the window where the server is running.</p>
+      <div class="field"><label for="suCode">Setup code</label><input id="suCode" class="mono" placeholder="XXXX-XXXX" autocomplete="off" autocapitalize="characters" required></div>
+      <div class="field"><label for="suName">Your name</label><input id="suName" autocomplete="name" required></div>
+      <div class="field"><label for="suUser">Username</label><input id="suUser" autocomplete="username" autocapitalize="none" placeholder="e.g. budi" required></div>
+      <div class="field"><label for="suPass">Password <span class="hint">· at least 8 characters</span></label><input id="suPass" type="password" autocomplete="new-password" minlength="8" required></div>
+      <div class="err" id="suErr" role="alert"></div>
+      <button class="btn primary block" id="suGo">Create admin account</button>
+    </form>
+  </div>
+</div>
+
 <div class="app">
 
 <aside class="sidebar">
@@ -24,12 +47,22 @@
     <button class="nav-item" role="tab" data-tab="inventory" aria-selected="true"><svg viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg><span>Inventory</span></button>
     <button class="nav-item" role="tab" data-tab="moves" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M7 20V4M3 8l4-4 4 4M17 4v16M13 16l4 4 4-4"/></svg><span>Stock moves</span></button>
     <button class="nav-item" role="tab" data-tab="alerts" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span>Alerts</span><span class="count zero" id="alertBadge">0</span></button>
+    <button class="nav-item" role="tab" data-tab="pos" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.6L21 8H6"/><circle cx="10" cy="20" r="1"/><circle cx="17" cy="20" r="1"/></svg><span>Purchase orders</span><span class="count zero" id="poBadge">0</span></button>
     <button class="nav-item" role="tab" data-tab="suppliers" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M3 21V8l6-4v4l6-4v4l6-4v17z"/><path d="M7 17h2M11 17h2M15 17h2"/></svg><span>Suppliers</span></button>
     <button class="nav-item" role="tab" data-tab="formulas" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M18 7V4H6l6 8-6 8h12v-3"/></svg><span>Formulas</span></button>
     <button class="nav-item" role="tab" data-tab="files" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg><span>Files &amp; reports</span></button>
     <button class="nav-item" role="tab" data-tab="settings" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg><span>Import &amp; settings</span></button>
+    <button class="nav-item" role="tab" data-tab="users" aria-selected="false" data-need="admin"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M16 4a4 4 0 0 1 0 8M22 21a7 7 0 0 0-4-6.3"/></svg><span>Users</span></button>
   </nav>
-  <div class="sync"><span class="dot" id="syncDot"></span><span id="syncStatus">Connecting…</span></div>
+  <div class="side-foot">
+    <div class="sync"><span class="dot" id="syncDot"></span><span id="syncStatus">Connecting…</span></div>
+    <div class="me">
+      <span class="avatar sm" id="meAvatar">?</span>
+      <div class="me-t"><strong id="meName">—</strong><span id="meRole"></span></div>
+      <button class="icon-btn" id="pwBtn" title="Change password" aria-label="Change password"><svg viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></button>
+      <button class="icon-btn" id="logoutBtn" title="Sign out" aria-label="Sign out"><svg viewBox="0 0 24 24"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/></svg></button>
+    </div>
+  </div>
 </aside>
 
 <main class="main">
@@ -38,7 +71,7 @@
 <section class="page" id="page-inventory">
   <header class="page-head">
     <div><h1>Inventory</h1><p class="sub">Stock on hand across the PPN and Non-PPN ledgers.</p></div>
-    <button class="btn primary" id="addBtn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add product</button>
+    <button class="btn primary" id="addBtn" data-need="staff"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add product</button>
   </header>
   <div class="kpis" id="kpis"></div>
   <div class="card">
@@ -56,7 +89,7 @@
 <!-- MOVES -->
 <section class="page" id="page-moves" hidden>
   <header class="page-head"><div><h1>Stock moves</h1><p class="sub">Book goods received, sold or counted. Feeds <span class="mono">out_30</span> and <span class="mono">avg_daily_out</span>.</p></div></header>
-  <div class="card">
+  <div class="card" data-need="staff">
     <h2>Record a movement</h2>
     <div class="fgrid">
       <div class="field span2"><label for="mvItem">Product (SKU · ledger)</label><input id="mvItem" list="itemList" placeholder="Type a SKU and pick from the list" autocomplete="off"></div>
@@ -69,7 +102,7 @@
   </div>
   <div class="card">
     <h2>Last 30 days</h2>
-    <div class="tbl-wrap"><table id="mvTbl"><thead><tr><th>Time</th><th>SKU</th><th>Ledger</th><th>Type</th><th class="num">Qty Δ</th><th>Note</th></tr></thead><tbody></tbody></table></div>
+    <div class="tbl-wrap"><table id="mvTbl"><thead><tr><th>Time</th><th>SKU</th><th>Ledger</th><th>Type</th><th class="num">Qty Δ</th><th>Note</th><th>By</th></tr></thead><tbody></tbody></table></div>
   </div>
 </section>
 
@@ -80,11 +113,32 @@
   <div class="card flush" id="alertList"></div>
 </section>
 
+<!-- PURCHASE ORDERS -->
+<section class="page" id="page-pos" hidden>
+  <header class="page-head">
+    <div><h1>Purchase orders</h1><p class="sub">Collect what to buy per supplier, send it in one message, then book the goods in as they arrive.</p></div>
+    <button class="btn primary" id="poNew" data-need="staff"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>New order</button>
+  </header>
+  <div class="seg" role="tablist" aria-label="Order status" id="poSeg">
+    <button data-f="open" aria-selected="true">Open</button><button data-f="draft" aria-selected="false">Drafts</button><button data-f="sent" aria-selected="false">Waiting for goods</button><button data-f="done" aria-selected="false">Finished</button><button data-f="all" aria-selected="false">All</button>
+  </div>
+  <div class="card flush"><div class="tbl-wrap bare"><table id="poTbl"><thead><tr><th>Order</th><th>Supplier</th><th>Status</th><th class="num">Items</th><th class="num">Total</th><th>Received</th><th>Created</th><th>Sent</th></tr></thead><tbody></tbody></table></div></div>
+</section>
+
+<!-- USERS -->
+<section class="page" id="page-users" hidden>
+  <header class="page-head">
+    <div><h1>Users</h1><p class="sub"><strong>Admin</strong>: everything. <strong>Staff</strong>: products, stock, suppliers, orders, files — but can't delete, change formulas or settings. <strong>Viewer</strong>: can look, can't change anything.</p></div>
+    <button class="btn primary" id="uAdd"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add user</button>
+  </header>
+  <div class="card flush"><div class="tbl-wrap bare"><table id="uTbl"><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th>Added</th><th></th></tr></thead><tbody></tbody></table></div></div>
+</section>
+
 <!-- SUPPLIERS -->
 <section class="page" id="page-suppliers" hidden>
   <header class="page-head">
     <div><h1>Suppliers</h1><p class="sub">Who you buy from and how to reach them. Assign a supplier to each product to reorder in one click from Alerts.</p></div>
-    <button class="btn primary" id="supAdd"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add supplier</button>
+    <button class="btn primary" id="supAdd" data-need="staff"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add supplier</button>
   </header>
   <div class="toolbar">
     <label class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="supQ" type="search" placeholder="Search company, person or contact" aria-label="Search suppliers"></label>
@@ -96,8 +150,9 @@
 <!-- FORMULAS -->
 <section class="page" id="page-formulas" hidden>
   <header class="page-head"><div><h1>Formulas</h1><p class="sub">Alerts notify you when a condition is true. Columns add a computed number to the inventory table.</p></div></header>
+  <p class="note" data-only="nonadmin">Only admins can add or change formulas.</p>
   <div class="grid2">
-    <div class="card">
+    <div class="card" data-need="admin">
       <h2 id="ruleFormTitle">New formula</h2>
       <div class="fgrid">
         <div class="field full"><label for="rName">Name</label><input id="rName" placeholder="e.g. Reorder before lead time"></div>
@@ -122,7 +177,7 @@
 <!-- FILES -->
 <section class="page" id="page-files" hidden>
   <header class="page-head"><div><h1>Files &amp; reports</h1><p class="sub">Hashiru sales reports (Laporan Penjualan Detail) and stock reports (Persediaan Barang) feed the safety-stock calculation.</p></div></header>
-  <div class="card">
+  <div class="card" data-need="staff">
     <h2>Upload files</h2>
     <p class="hint">Any file type up to 15 MB each. Report type, ledger and month are guessed from the file name — check them before uploading.</p>
     <div class="fgrid">
@@ -152,7 +207,7 @@
 <section class="page" id="page-settings" hidden>
   <header class="page-head"><div><h1>Import &amp; settings</h1><p class="sub">Load products in bulk, tune the stock model, export data.</p></div></header>
   <div class="grid2">
-    <div class="card">
+    <div class="card" data-need="staff">
       <h2>Import products</h2>
       <p class="hint">Excel or CSV. Recognised headers: <span class="mono">SKU / Kode</span>, <span class="mono">Name / Nama</span>, <span class="mono">Unit / Satuan</span> (PCS or SET), <span class="mono">Qty / Stok</span>, <span class="mono">Price / Harga</span>, <span class="mono">Tax / PPN</span>, <span class="mono">Min</span>. Rows with the same SKU and ledger are updated, not duplicated.</p>
       <div class="field"><label for="impFile">File</label><input id="impFile" type="file" accept=".xlsx,.xls,.csv"></div>
@@ -171,13 +226,14 @@
         <div class="field"><label for="sWindow">Demand history used (months)</label><input id="sWindow" type="number" step="1" min="3" max="60"></div>
       </div>
       <div class="note">Safety stock = Z × σ(monthly sales) × √((lead time + check interval) ÷ 30.4). Reorder point = daily sales × (lead time + check interval) + safety stock. Order up to = daily sales × (lead time + 2 × check interval) + safety stock. Months where stock was zero at both the start and end are left out, because sales were blocked, not low.</div>
-      <div class="row"><button class="btn primary" id="sSave">Save settings</button><span id="sMsg" class="hint"></span></div>
+      <div class="row" data-need="admin"><button class="btn primary" id="sSave">Save settings</button><span id="sMsg" class="hint"></span></div>
+      <p class="hint" data-only="nonadmin">Only admins can change these settings.</p>
     </div>
     <div class="card">
       <h2>Export</h2>
       <div class="row"><button class="btn" id="expAll">Export inventory to Excel</button><button class="btn" id="expAlerts">Export alerts to Excel</button></div>
     </div>
-    <div class="card">
+    <div class="card" data-need="admin">
       <h2>Example data</h2>
       <div class="row"><span class="hint grow">Products with SKUs starting <span class="mono">DEMO-</span> and suppliers named <span class="mono">[Demo]</span> are examples. Remove them before loading your real stock.</span><button class="btn danger" id="clearDemo">Remove examples</button></div>
     </div>
@@ -204,7 +260,7 @@
     <div class="hint" id="iFiles"></div>
     <div class="err" id="iErr"></div>
     <div class="confirm" id="iDelRow" hidden><span>Delete this product from the ledger? Its movement history stays.</span><button type="button" class="btn danger small" id="iDelYes">Delete</button><button type="button" class="btn small" id="iDelNo">Keep</button></div>
-    <div class="row dlg-foot"><button type="button" class="btn ghost-danger" id="iDel">Delete</button><span class="spacer"></span><button type="button" class="btn" id="iCancel">Cancel</button><button type="submit" class="btn primary" id="iSave">Save</button></div>
+    <div class="row dlg-foot"><button type="button" class="btn ghost-danger" id="iDel" data-need="admin">Delete</button><span class="spacer"></span><button type="button" class="btn" id="iCancel">Close</button><button type="submit" class="btn primary" id="iSave" data-need="staff">Save</button></div>
   </form>
 </dialog>
 
@@ -231,7 +287,7 @@
     </div>
     <div class="err" id="supErr"></div>
     <div class="confirm" id="supDelRow" hidden><span id="supDelText">Delete this supplier?</span><button type="button" class="btn danger small" id="supDelYes">Delete</button><button type="button" class="btn small" id="supDelNo">Keep</button></div>
-    <div class="row dlg-foot"><button type="button" class="btn ghost-danger" id="supDel">Delete</button><span class="spacer"></span><button type="button" class="btn" id="supCancel">Cancel</button><button type="submit" class="btn primary" id="supSave">Save</button></div>
+    <div class="row dlg-foot"><button type="button" class="btn ghost-danger" id="supDel" data-need="admin">Delete</button><span class="spacer"></span><button type="button" class="btn" id="supCancel">Cancel</button><button type="submit" class="btn primary" id="supSave">Save</button></div>
   </form>
 </dialog>
 
@@ -239,14 +295,66 @@
   <div class="dlg">
     <div class="dlg-head"><div><h2 id="roTitle">Reorder</h2><div class="hint" id="roSub"></div></div><button type="button" class="icon-btn" id="roClose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
     <div id="roCompare"></div>
+    <div id="roOnOrder"></div>
     <div class="fgrid">
       <div class="field"><label for="roQty">Order quantity</label><input id="roQty" type="number" min="1" step="1" inputmode="numeric"></div>
     </div>
     <div id="roSupplier"></div>
-    <div class="field" id="roMsgWrap"><label for="roMsg">Message</label><textarea id="roMsg" rows="8"></textarea></div>
-    <div class="row" id="roActions"></div>
     <div class="hint" id="roNote"></div>
+    <div class="row dlg-foot" id="roActions"></div>
   </div>
+</dialog>
+
+<dialog id="poDlg" class="wide">
+  <div class="dlg">
+    <div class="dlg-head"><div><h2 id="poTitle">Purchase order</h2><div class="hint" id="poMeta"></div></div><button type="button" class="icon-btn" id="poClose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+    <div id="poSupplier"></div>
+    <div class="tbl-wrap"><table id="poLines"><thead></thead><tbody></tbody><tfoot></tfoot></table></div>
+    <div class="row" id="poAddRow"><input id="poAddItem" list="itemList" placeholder="Add a product: type a SKU" autocomplete="off" style="flex:1 1 240px"><input id="poAddQty" type="number" min="1" step="1" placeholder="Qty" style="width:100px"><button type="button" class="btn" id="poAddBtn">Add line</button></div>
+    <div class="field" id="poNoteWrap"><label for="poNote">Note for the supplier</label><textarea id="poNote" rows="2" placeholder="e.g. delivery address, payment terms"></textarea></div>
+    <div class="err" id="poErr" role="alert"></div>
+    <div id="poSend" class="send-box" hidden>
+      <div class="field"><label for="poMsg">Message</label><textarea id="poMsg" rows="9"></textarea></div>
+      <div class="row" id="poChannels"></div>
+      <div class="hint" id="poSendNote"></div>
+    </div>
+    <div class="row dlg-foot" id="poActions"></div>
+  </div>
+</dialog>
+
+<dialog id="poNewDlg">
+  <div class="dlg">
+    <div class="dlg-head"><h2>New purchase order</h2></div>
+    <div class="field"><label for="poNewPick">Supplier</label><select id="poNewPick"></select></div>
+    <div class="row dlg-foot"><span class="spacer"></span><button type="button" class="btn" id="poNewCancel">Cancel</button><button type="button" class="btn primary" id="poNewGo">Create draft</button></div>
+  </div>
+</dialog>
+
+<dialog id="uDlg">
+  <form class="dlg" id="uForm" method="dialog">
+    <div class="dlg-head"><h2 id="uTitle">User</h2><button type="button" class="icon-btn" id="uClose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+    <div class="fgrid">
+      <div class="field full"><label for="uName">Name</label><input id="uName" required></div>
+      <div class="field"><label for="uUser">Username</label><input id="uUser" autocapitalize="none" autocomplete="off" required></div>
+      <div class="field"><label for="uRole">Role</label><select id="uRole"><option value="staff">Staff</option><option value="viewer">Viewer</option><option value="admin">Admin</option></select></div>
+      <div class="field full"><label for="uPass" id="uPassL">Password</label><input id="uPass" type="password" autocomplete="new-password" minlength="8"></div>
+    </div>
+    <p class="hint" id="uHint"></p>
+    <label class="chk" id="uActiveWrap"><input type="checkbox" id="uActive"> Account is active (can sign in)</label>
+    <div class="err" id="uErr" role="alert"></div>
+    <div class="row dlg-foot"><span class="spacer"></span><button type="button" class="btn" id="uCancel">Cancel</button><button type="submit" class="btn primary" id="uSave">Save</button></div>
+  </form>
+</dialog>
+
+<dialog id="pwDlg">
+  <form class="dlg" id="pwForm" method="dialog">
+    <div class="dlg-head"><h2>Change password</h2><button type="button" class="icon-btn" id="pwClose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+    <div class="field"><label for="pwCur">Current password</label><input id="pwCur" type="password" autocomplete="current-password" required></div>
+    <div class="field"><label for="pwNew">New password <span class="hint">· at least 8 characters</span></label><input id="pwNew" type="password" autocomplete="new-password" minlength="8" required></div>
+    <p class="hint">You stay signed in here; other devices are signed out.</p>
+    <div class="err" id="pwErr" role="alert"></div>
+    <div class="row dlg-foot"><span class="spacer"></span><button type="button" class="btn" id="pwCancel">Cancel</button><button type="submit" class="btn primary" id="pwSave">Change password</button></div>
+  </form>
 </dialog>
 
 <dialog id="pvDlg" class="wide">
