@@ -938,7 +938,12 @@ $("#invActions").addEventListener("click", async (e) => {
         await api.invDelete(invId); invDirty = false; $("#invDlg").close(); toast("Draft deleted"); await load(); break;
       case "issue": {
         if (invEdit.lines.some((l) => !(+l.price))) { $("#invErr").textContent = "Every line needs a price before issuing."; return; }
-        if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = "Confirm: post and take items out of stock"; return; }
+        if (b.dataset.confirm !== "1") {
+          b.dataset.confirm = "1";
+          b.textContent = "Confirm: post and take items out of stock";
+          $("#invErr").textContent = "Not posted yet. Click Confirm to give it a number and add it to receivables.";
+          return;
+        }
         b.disabled = true;
         if (invDirty) await saveInvDraft();
         const r = await api.invIssue(invId);
@@ -984,12 +989,20 @@ $("#invChannels").addEventListener("click", async (e) => {
   else if (b.dataset.ich === "email") location.href = mailtoUrl(cust.email, `Invoice ${inv.number}`, msg);
   else copyText(msg, "Message");
 });
-$("#invClose").onclick = () => {
-  if (invDirty && !confirm("Discard your unsaved changes to this invoice?")) return;
+/** Closing never throws work away: a changed draft is saved first (drafts don't touch stock or numbers). */
+async function closeInvoice() {
+  if (invDirty && curInv()?.status === "draft") {
+    try { await saveInvDraft(); } catch (e) { $("#invErr").textContent = e.message + " The draft was not saved."; return; }
+  }
   $("#invDlg").close();
-};
-$("#invDlg").addEventListener("cancel", (e) => { if (invDirty && !confirm("Discard your unsaved changes to this invoice?")) e.preventDefault(); });
-$("#invDlg").addEventListener("close", () => { invDirty = false; invId = null; $("#invMsg").dataset.for = ""; });
+}
+$("#invClose").onclick = closeInvoice;
+$("#invDlg").addEventListener("cancel", (e) => { if (invDirty) { e.preventDefault(); closeInvoice(); } });
+$("#invDlg").addEventListener("close", () => {
+  const inv = curInv();
+  if (inv?.status === "draft" && inv.lines.length) toast("Draft saved. It is not in receivables until you post it.");
+  invDirty = false; invId = null; $("#invMsg").dataset.for = "";
+});
 
 /* invoice settings */
 
@@ -1306,6 +1319,14 @@ function renderAR() {
     ["crit", "Over 90 days overdue", fmtRp(sum(ov90)), plural(ov90.length, "invoice")],
     ["", "Customers overdue", nf(new Set(ov.map((e) => e.customerId)).size), "with at least one late invoice"],
   ]);
+  // Invoices that look like sales but aren't owed money yet: unposted drafts and transfers to our own entities.
+  const drafts = S.invoices.filter((i) => i.status === "draft" && i.lines.length && !customerById(i.customerId)?.internal);
+  const transfers = S.invoices.filter((i) => i.status === "issued" && i.internal && i.date >= addDaysYmd(today(), -31));
+  const notes = [];
+  if (drafts.length) notes.push(`<strong>${plural(drafts.length, "invoice is", "invoices are")} still a draft</strong> and not in receivables until posted: ${drafts.map((i) => `<button type="button" class="linklike" data-inv="${esc(i.id)}">${esc(customerById(i.customerId)?.name || "draft")} · ${fmtRp(invoiceTotals(i.lines, i.tax, S.settings.ppnRate, S.settings.priceMode).total)}</button>`).join(", ")}. Open one and press <em>Post invoice</em>, then <em>Confirm</em>.`);
+  if (transfers.length) notes.push(`${plural(transfers.length, "invoice")} in the last 31 days went to your own entities (${transfers.map((i) => esc(i.number)).join(", ")}). Those are stock transfers, not receivables. If one was a real sale, untick “internal” on that contact.`);
+  $("#arNote").hidden = !notes.length;
+  $("#arNote").innerHTML = notes.join("<br>");
   const q = $("#arq").value.trim().toLowerCase(), f = $("#arFilter").value;
   const rows = all.filter((e) => (!q || [e.number, e.custName].join(" ").toLowerCase().includes(q)) && (!f || (f === "overdue" ? e.od > 0 : e.od > 90))).sort((a, b) => b.od - a.od);
   const byC = new Map();
@@ -1327,6 +1348,7 @@ function renderAR() {
     : `<tr><td colspan="5"><div class="empty">No payments recorded yet.</div></td></tr>`;
 }
 ["#arq", "#arFilter"].forEach((s) => $(s).addEventListener("input", renderAR));
+$("#arNote").addEventListener("click", (e) => { const b = e.target.closest("[data-inv]"); if (b) openInvoice(b.dataset.inv); });
 $("#arCust").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-cust]"); if (tr) { $("#arq").value = customerById(tr.dataset.cust)?.name || ""; renderAR(); } });
 $("#arTbl").addEventListener("click", (e) => {
   const inv = e.target.closest("[data-inv]");

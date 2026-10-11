@@ -426,3 +426,4 @@ p.card-pad { border-top: 1px solid var(--line); }
   .inline-l { width: 100%; }
 }
 .muted-row td { color: var(--muted); }
+.note.attn { background: var(--warn-soft); border-color: #f3e2bd; color: var(--fg); line-height: 1.6; }
