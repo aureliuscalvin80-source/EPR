@@ -16,6 +16,8 @@ const S = {
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 const nf = (n) => n.toLocaleString("id-ID");
+/** Whole rupiah from what was typed: "Rp 1.250.000", "1.250.000" and "1250000" all give 1250000. */
+const parseRp = (s) => { const d = String(s ?? "").replace(/,\d{1,2}$/, "").replace(/\D/g, ""); return d ? Math.min(+d, 1e13) : 0; };
 const plural = (n, w, pl = w + "s") => `${nf(n)} ${n === 1 ? w : pl}`;
 const initial = (name) => (String(name).match(/[\p{L}\p{N}]/u) || ["?"])[0].toUpperCase();
 const entName = (t) => S.settings.ent?.[t]?.name || taxLabel(t);
@@ -238,7 +240,7 @@ function renderInv() {
     return `<tr data-key="${esc(it.key)}" class="${d.sev ? "sev-" + d.sev : ""}">
       <td class="sku">${esc(it.sku)}</td><td class="name">${esc(it.name)}</td><td>${ledgerChip(it.tax)}</td><td><span class="chip unit">${esc(it.unit)}</span></td>
       <td class="num"><span class="qty ${d.sev}">${fmtN(+it.qty || 0)}</span></td><td class="num">${+it.onOrder > 0 ? `<span class="qty-on">${fmtN(+it.onOrder)}</span>` : dash}</td>
-      <td class="num">${canEdit() ? `<input class="sp-in${+it.sellPrice ? "" : " need"}" type="number" min="0" step="1" inputmode="numeric" value="${+it.sellPrice || ""}" placeholder="set price" data-sp="${esc(it.key)}" aria-label="Sell price for ${esc(it.sku)}">` : +it.sellPrice ? fmtRp(+it.sellPrice) : dash}</td><td class="num">${it.tax === "PPN" && +it.sellPrice ? fmtRp(v.price_incl) : dash}</td>
+      <td class="num">${canEdit() ? `<input class="sp-in${+it.sellPrice ? "" : " need"}" type="text" inputmode="numeric" autocomplete="off" value="${+it.sellPrice ? fmtRp(+it.sellPrice) : ""}" placeholder="set price" data-sp="${esc(it.key)}" aria-label="Sell price for ${esc(it.sku)}">` : +it.sellPrice ? fmtRp(+it.sellPrice) : dash}</td><td class="num">${it.tax === "PPN" && +it.sellPrice ? fmtRp(v.price_incl) : dash}</td>
       ${isOwner() ? `<td class="num">${v.cost ? fmtRp(v.cost) : dash}</td><td class="num">${v.cost && v.price_excl ? `<span class="${v.margin_pct < 10 ? "err" : ""}">${v.margin_pct.toFixed(1)}%</span>` : dash}</td><td class="num">${v.value ? fmtRp(v.value) : dash}</td>` : ""}
       <td class="num">${it.minStock ? fmtN(+it.minStock) : dash}</td><td class="name">${esc(supplierOf(it)?.company || "") || dash}</td>
       ${S.colRules.map((r) => { const x = d.cols[r.id]; return `<td class="num">${x == null ? dash : Number.isNaN(x) ? '<span class="err">err</span>' : fmtN(x)}</td>`; }).join("")}
@@ -266,7 +268,7 @@ $("#invTbl").addEventListener("click", (e) => {
 $("#invTbl").addEventListener("change", async (e) => {
   const box = e.target.closest("[data-sp]");
   if (!box) return;
-  const it = S.items[box.dataset.sp], v = box.value === "" ? 0 : Math.max(0, Math.round(+box.value || 0));
+  const it = S.items[box.dataset.sp], v = parseRp(box.value);
   if (!it || v === (+it.sellPrice || 0)) return;
   box.classList.add("saving");
   try {
@@ -274,12 +276,25 @@ $("#invTbl").addEventListener("change", async (e) => {
     it.sellPrice = v; // shown at once; the live update refreshes the rest
     box.classList.toggle("need", !v);
     toast(v ? `${it.sku}: sell price ${fmtRp(v)}` : `${it.sku}: sell price cleared`);
-  } catch (er) { handleErr(er); box.value = +it.sellPrice || ""; } finally { box.classList.remove("saving"); }
+  } catch (er) { handleErr(er); box.value = +it.sellPrice ? fmtRp(+it.sellPrice) : ""; } finally { box.classList.remove("saving"); }
+});
+// Shown as "Rp 99.000"; while editing it's the plain number. Dots typed by habit ("99.000") are fine.
+$("#invTbl").addEventListener("focusin", (e) => {
+  const box = e.target.closest("[data-sp]");
+  if (!box) return;
+  const v = parseRp(box.value);
+  box.value = v || "";
+  box.select();
+});
+$("#invTbl").addEventListener("focusout", (e) => {
+  const box = e.target.closest("[data-sp]");
+  if (box) { const v = parseRp(box.value); box.value = v ? fmtRp(v) : ""; }
 });
 $("#invTbl").addEventListener("keydown", (e) => {
   const box = e.target.closest("[data-sp]");
   if (!box) return;
   if (e.key === "Escape") { box.value = +S.items[box.dataset.sp]?.sellPrice || ""; box.blur(); return; }
+  if (e.key.length === 1 && !/[\d.,]/.test(e.key) && !e.ctrlKey && !e.metaKey) { e.preventDefault(); return; } // digits only
   if (e.key !== "Enter") return;
   e.preventDefault();
   const all = $$("#invTbl [data-sp]"), next = all[all.indexOf(box) + (e.shiftKey ? -1 : 1)];
