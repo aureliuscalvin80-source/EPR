@@ -334,6 +334,7 @@ export function createApp({ dataDir, setupCode = makeSetupCode(), secureCookies 
       ppnRate: numIn(b.ppnRate, "PPN rate", { min: 0 }),
       leadTime: numIn(b.leadTime, "Lead time", { min: 0 }),
       priceMode: oneOf(b.priceMode, ["excl", "incl"], "Price mode"),
+      ppnStyle: oneOf(b.ppnStyle ?? "flat", ["flat", "dpp-lain"], "PPN on invoices"),
       reviewDays: numIn(b.reviewDays, "Stock check interval", { min: 0 }),
       serviceLevel: Math.min(99.9, Math.max(50, Number(b.serviceLevel) || 95)),
       windowMonths: Math.min(60, Math.max(3, Math.round(Number(b.windowMonths) || 12))),

@@ -10,20 +10,22 @@ export const lineAmount = (l) => Math.round((+l.qty || 0) * (+l.price || 0) * (1
 
 /**
  * Invoice totals. Non-PPN: total = subtotal.
- * PPN at the 11 % effective rate uses the 2025 scheme: DPP Nilai Lain = 11/12 × selling price, PPN = 12 % of that
- * (rounded down to whole rupiah, as e-Faktur does). Any other rate is applied to the full subtotal.
+ * style "flat" (default): PPN = rate × subtotal, rounded down, shown as "PPN 11%".
+ * style "dpp-lain" at the 11 % rate: the Coretax presentation, DPP Nilai Lain = 11/12 × selling price and PPN = 12 % of
+ * that. Same tax, but rounding can differ from flat 11 % by Rp 1, so pick the one your e-Faktur matches.
  * priceMode "incl": the line prices already include PPN; the total stays as entered and DPP is worked back from it.
  */
-export function invoiceTotals(lines, tax, ppnRate, priceMode = "excl") {
+export function invoiceTotals(lines, tax, ppnRate, priceMode = "excl", style = "flat") {
   const gross = lines.reduce((a, l) => a + lineAmount(l), 0);
   if (tax !== "PPN") return { subtotal: gross, dppLain: 0, ppn: 0, total: gross, scheme: "none" };
   const rate = +ppnRate || 0;
+  const lain = rate === 11 && style === "dpp-lain";
   if (priceMode === "incl") {
     const subtotal = Math.round(gross / (1 + rate / 100));
-    return { subtotal, dppLain: rate === 11 ? Math.floor((subtotal * 11) / 12) : 0, ppn: gross - subtotal, total: gross, scheme: rate === 11 ? "dpp-lain" : "flat", rate };
+    return { subtotal, dppLain: lain ? Math.floor((subtotal * 11) / 12) : 0, ppn: gross - subtotal, total: gross, scheme: lain ? "dpp-lain" : "flat", rate };
   }
   const subtotal = gross;
-  if (rate === 11) {
+  if (lain) {
     const dppLain = Math.floor((subtotal * 11) / 12);
     const ppn = Math.floor((dppLain * 12) / 100);
     return { subtotal, dppLain, ppn, total: subtotal + ppn, scheme: "dpp-lain" };
@@ -86,7 +88,7 @@ ${issuer?.name || ""}`.trim();
 
 /** Complete, printable HTML document for one invoice (A4). */
 export function invoiceHtml({ inv, lines, issuer = {}, payments = [], ppnRate }) {
-  const t = inv.status === "draft" ? invoiceTotals(lines, inv.tax, ppnRate, inv.priceMode) : { subtotal: inv.subtotal, dppLain: inv.dppLain, ppn: inv.ppn, total: inv.total, scheme: inv.dppLain ? "dpp-lain" : inv.ppn ? "flat" : "none" };
+  const t = inv.status === "draft" ? invoiceTotals(lines, inv.tax, ppnRate, inv.priceMode, inv.ppnStyle) : { subtotal: inv.subtotal, dppLain: inv.dppLain, ppn: inv.ppn, total: inv.total, scheme: inv.dppLain ? "dpp-lain" : inv.ppn ? "flat" : "none" };
   const paid = payments.reduce((a, p) => a + p.amount, 0);
   const cust = inv.status === "draft" ? inv.customer || {} : { name: inv.custName, address: inv.custAddress, npwp: inv.custNpwp };
   const anyDisc = lines.some((l) => +l.discPct);

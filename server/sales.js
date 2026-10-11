@@ -212,7 +212,7 @@ export function createSales(db, { need, write, addMove, getSettings }) {
     const number = `${prefix}/${year}/${month}/${String(seq + 1).padStart(4, "0")}`;
     const st = getSettings();
     const priced = lines.map((l) => ({ qty: l.qty, price: l.price, discPct: l.disc_pct }));
-    const t = invoiceTotals(priced, inv.tax, st.ppnRate, st.priceMode);
+    const t = invoiceTotals(priced, inv.tax, st.ppnRate, st.priceMode, st.ppnStyle);
     // A sale to one of our own entities is a transfer: out of this ledger, into theirs, at the invoice's net price.
     const internal = !!c.internal;
     const transferTo = internal && c.ledger && c.ledger !== inv.tax ? c.ledger : "";

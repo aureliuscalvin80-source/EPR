@@ -19,6 +19,7 @@ export const DEFAULT_SETTINGS = {
   ppnRate: 11,
   leadTime: 60,
   priceMode: "excl",
+  ppnStyle: "flat", // "flat": PPN 11% · "dpp-lain": 12% × DPP Nilai Lain 11/12 (Coretax)
   reviewDays: 90,
   serviceLevel: 95,
   windowMonths: 12,

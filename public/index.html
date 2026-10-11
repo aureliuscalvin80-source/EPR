@@ -359,6 +359,7 @@
       <div class="fgrid">
         <div class="field"><label for="sPpn">Effective PPN rate (%)</label><input id="sPpn" type="number" step="0.01" min="0"></div>
         <div class="field"><label for="sPriceMode">Selling prices are</label><select id="sPriceMode"><option value="excl">Excluding PPN (DPP)</option><option value="incl">Including PPN</option></select></div>
+        <div class="field"><label for="sPpnStyle">PPN on invoices</label><select id="sPpnStyle"><option value="flat">PPN 11% of the price</option><option value="dpp-lain">12% × DPP Nilai Lain 11/12 (Coretax format)</option></select></div>
         <div class="field"><label for="sLead">Supplier lead time (days)</label><input id="sLead" type="number" step="1" min="0"></div>
         <div class="field"><label for="sReview">Stock check every (days)</label><input id="sReview" type="number" step="1" min="0"></div>
         <div class="field"><label for="sService">Service level (%)</label><input id="sService" type="number" step="0.5" min="50" max="99.9"></div>
@@ -514,7 +515,7 @@
     <div class="note warnbox" id="invVoidNote" hidden></div>
     <div class="fgrid" id="invHead"></div>
     <div class="tbl-wrap"><table id="invLines"><thead></thead><tbody></tbody></table></div>
-    <div class="row" id="invAddRow"><input id="invAddItem" list="invItemList" placeholder="Add a product: type a SKU" autocomplete="off" style="flex:1 1 240px"><input id="invAddQty" type="number" min="1" step="1" placeholder="Qty" style="width:100px"><button type="button" class="btn" id="invAddBtn">Add line</button><datalist id="invItemList"></datalist></div>
+    <div class="row" id="invAddRow"><input id="invAddItem" list="invItemList" placeholder="Add a product: type a SKU" autocomplete="off" style="flex:1 1 240px"><input id="invAddQty" type="number" min="1" step="1" placeholder="Qty" style="width:100px"><input id="invAddPrice" type="number" min="0" step="1" placeholder="Sell price" aria-label="Sell price" style="width:170px"><button type="button" class="btn" id="invAddBtn">Add line</button><datalist id="invItemList"></datalist></div>
     <div class="inv-bottom">
       <div class="inv-left">
         <div class="field" id="invNoteWrap"><label for="invNote">Note on the invoice</label><textarea id="invNote" rows="2"></textarea></div>

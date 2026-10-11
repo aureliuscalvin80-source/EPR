@@ -710,7 +710,7 @@ function renderSales() {
   }
   tb.innerHTML = rows.slice(0, 500).map((i) => {
     const [c, l] = invStatus(i);
-    const t = i.status === "draft" ? invoiceTotals(i.lines, i.tax, S.settings.ppnRate, S.settings.priceMode) : { subtotal: i.subtotal, ppn: i.ppn, total: i.total };
+    const t = i.status === "draft" ? invoiceTotals(i.lines, i.tax, S.settings.ppnRate, S.settings.priceMode, S.settings.ppnStyle) : { subtotal: i.subtotal, ppn: i.ppn, total: i.total };
     const name = i.status === "draft" ? customerById(i.customerId)?.name || "—" : i.custName;
     return `<tr data-inv="${esc(i.id)}"><td>${ymdLabel(i.date)}</td><td class="sku">${esc(i.number || "Draft")}</td><td class="name">${esc(name)}</td><td>${ledgerChip(i.tax)}</td>
       <td class="num">${i.lines.length}</td><td class="num">${fmtRp(t.subtotal)}</td><td class="num">${t.ppn ? fmtRp(t.ppn) : dash}</td><td class="num"><strong>${fmtRp(t.total)}</strong></td>
@@ -745,6 +745,8 @@ let invId = null, invEdit = null, invDirty = false, invSendOpen = false;
 function openInvoice(id) {
   invId = id;
   $("#invActions")._html = null; // a fresh dialog drops any half-confirmed button
+  ["#invAddItem", "#invAddQty", "#invAddPrice"].forEach((x) => ($(x).value = ""));
+  $("#invAddPrice").dataset.typed = "";
   invEdit = null;
   invDirty = false;
   invSendOpen = false;
@@ -806,6 +808,7 @@ function renderInvoiceDialog() {
       <td class="num${draft ? " hide-sm" : ""}">${fmtRp(lineAmount(l))}</td>${edit ? `<td><button type="button" class="icon-btn" data-ildel="${i}" aria-label="Remove ${esc(l.sku)}"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></td>` : ""}</tr>`;
   }).join("") : `<tr><td colspan="8"><div class="empty">No products yet. Add one below.</div></td></tr>`);
   $("#invAddRow").hidden = !edit;
+  $("#invAddPrice").placeholder = inv.tax === "PPN" ? (S.settings.priceMode === "incl" ? "Price incl. PPN" : "Price excl. PPN") : "Sell price";
   if (edit) $("#invItemList").innerHTML = itemOptions(inv.tax);
 
   // note
@@ -814,7 +817,7 @@ function renderInvoiceDialog() {
   $("#invNoteWrap").hidden = !draft && !inv.note;
 
   // totals
-  const t = draft ? invoiceTotals(lines, inv.tax, S.settings.ppnRate, S.settings.priceMode) : { subtotal: inv.subtotal, dppLain: inv.dppLain, ppn: inv.ppn, total: inv.total, scheme: inv.dppLain ? "dpp-lain" : inv.ppn ? "flat" : "none" };
+  const t = draft ? invoiceTotals(lines, inv.tax, S.settings.ppnRate, S.settings.priceMode, S.settings.ppnStyle) : { subtotal: inv.subtotal, dppLain: inv.dppLain, ppn: inv.ppn, total: inv.total, scheme: inv.dppLain ? "dpp-lain" : inv.ppn ? "flat" : "none" };
   const row = (l, v, cls = "") => `<div class="tr ${cls}"><span>${l}</span><span>${v}</span></div>`;
   $("#invTotals").innerHTML = (draft ? `<div class="hint">${inv.tax === "PPN" ? (S.settings.priceMode === "incl" ? "Line prices include PPN" : "Line prices exclude PPN") : "Non-PPN: no tax added"}</div>` : "") + row("Subtotal (DPP)", fmtRp(t.subtotal)) +
     (t.scheme === "dpp-lain" ? row("DPP Nilai Lain (11/12)", fmtRp(t.dppLain)) + row("PPN 12%", fmtRp(t.ppn)) : t.scheme === "flat" ? row(`PPN ${S.settings.ppnRate}%`, fmtRp(t.ppn)) : "") +
@@ -895,14 +898,27 @@ $("#invNote").addEventListener("input", () => {
   invDirty = true;
   $("#invActions [data-ia=save]")?.removeAttribute("disabled");
 });
+// Picking a product fills the price box with its sell price; whatever is in the box when adding goes on the line.
+$("#invAddItem").addEventListener("input", () => {
+  const inv = curInv(), it = inv && findItem($("#invAddItem").value, inv.tax), box = $("#invAddPrice");
+  if (!inv || !it || it.tax !== inv.tax || box.dataset.typed) return;
+  box.value = +it.sellPrice || "";
+  $("#invErr").textContent = it.sellPrice ? "" : `${it.sku} has no sell price saved. Type the price here; set it on the product to have it filled in next time.`;
+});
+$("#invAddPrice").addEventListener("input", (e) => { e.target.dataset.typed = e.target.value === "" ? "" : "1"; });
+["#invAddItem", "#invAddQty", "#invAddPrice"].forEach((s) => $(s).addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); $("#invAddBtn").click(); } }));
 $("#invAddBtn").onclick = () => {
-  const inv = curInv(), it = findItem($("#invAddItem").value), qty = +$("#invAddQty").value || 1;
+  const inv = curInv(), it = findItem($("#invAddItem").value, inv.tax), qty = +$("#invAddQty").value || 1;
   if (!it || it.tax !== inv.tax) { $("#invErr").textContent = `Pick a ${entName(inv.tax)} product from the list.`; return; }
-  $("#invErr").textContent = it.sellPrice ? "" : `${it.sku} has no sell price yet. Enter the price on the line, or set it on the product.`;
-  invEdit.lines.push({ itemKey: it.key, sku: it.sku, name: it.name, unit: it.unit, qty, price: +it.sellPrice || 0, discPct: 0 });
+  const box = $("#invAddPrice"), price = box.value !== "" ? Math.max(0, +box.value || 0) : +it.sellPrice || 0;
+  $("#invErr").textContent = price ? "" : `${it.sku} has no price. Type it on the line before posting.`;
+  invEdit.lines.push({ itemKey: it.key, sku: it.sku, name: it.name, unit: it.unit, qty, price, discPct: 0 });
   $("#invAddItem").value = "";
   $("#invAddQty").value = "";
+  box.value = "";
+  box.dataset.typed = "";
   invMarkDirty();
+  $("#invAddItem").focus();
 };
 async function saveInvDraft() {
   await api.invSave(invId, { customerId: invEdit.customerId, date: invEdit.date, terms: invEdit.terms, note: invEdit.note,
@@ -915,7 +931,7 @@ function printInvoice() {
   const inv = curInv();
   const draft = inv.status === "draft";
   const doc = invoiceHtml({
-    inv: draft ? { ...inv, ...invEdit, dueDate: addDaysYmd(invEdit.date, +invEdit.terms || 0), customer: customerById(invEdit.customerId), priceMode: S.settings.priceMode } : inv,
+    inv: draft ? { ...inv, ...invEdit, dueDate: addDaysYmd(invEdit.date, +invEdit.terms || 0), customer: customerById(invEdit.customerId), priceMode: S.settings.priceMode, ppnStyle: S.settings.ppnStyle } : inv,
     lines: draft ? invEdit.lines : inv.lines, issuer: { ...S.settings.ent?.[inv.tax], footer: S.settings.footer }, payments: inv.payments, ppnRate: S.settings.ppnRate,
   });
   const w = window.open("", "_blank");
@@ -1323,7 +1339,7 @@ function renderAR() {
   const drafts = S.invoices.filter((i) => i.status === "draft" && i.lines.length && !customerById(i.customerId)?.internal);
   const transfers = S.invoices.filter((i) => i.status === "issued" && i.internal && i.date >= addDaysYmd(today(), -31));
   const notes = [];
-  if (drafts.length) notes.push(`<strong>${plural(drafts.length, "invoice is", "invoices are")} still a draft</strong> and not in receivables until posted: ${drafts.map((i) => `<button type="button" class="linklike" data-inv="${esc(i.id)}">${esc(customerById(i.customerId)?.name || "draft")} · ${fmtRp(invoiceTotals(i.lines, i.tax, S.settings.ppnRate, S.settings.priceMode).total)}</button>`).join(", ")}. Open one and press <em>Post invoice</em>, then <em>Confirm</em>.`);
+  if (drafts.length) notes.push(`<strong>${plural(drafts.length, "invoice is", "invoices are")} still a draft</strong> and not in receivables until posted: ${drafts.map((i) => `<button type="button" class="linklike" data-inv="${esc(i.id)}">${esc(customerById(i.customerId)?.name || "draft")} · ${fmtRp(invoiceTotals(i.lines, i.tax, S.settings.ppnRate, S.settings.priceMode, S.settings.ppnStyle).total)}</button>`).join(", ")}. Open one and press <em>Post invoice</em>, then <em>Confirm</em>.`);
   if (transfers.length) notes.push(`${plural(transfers.length, "invoice")} in the last 31 days went to your own entities (${transfers.map((i) => esc(i.number)).join(", ")}). Those are stock transfers, not receivables. If one was a real sale, untick “internal” on that contact.`);
   $("#arNote").hidden = !notes.length;
   $("#arNote").innerHTML = notes.join("<br>");
@@ -2094,6 +2110,7 @@ function fillSettings() {
   $("#sPpn").value = st.ppnRate;
   $("#sLead").value = st.leadTime;
   $("#sPriceMode").value = st.priceMode;
+  $("#sPpnStyle").value = st.ppnStyle || "flat";
   $("#sReview").value = st.reviewDays;
   $("#sService").value = st.serviceLevel;
   $("#sWindow").value = st.windowMonths;
@@ -2132,7 +2149,7 @@ $("#stInvSave").onclick = async () => {
 $("#sSave").onclick = async () => {
   const m = $("#sMsg");
   try {
-    await api.saveSettings({ ppnRate: $("#sPpn").value, leadTime: $("#sLead").value, priceMode: $("#sPriceMode").value, reviewDays: $("#sReview").value, serviceLevel: $("#sService").value, windowMonths: $("#sWindow").value });
+    await api.saveSettings({ ppnRate: $("#sPpn").value, leadTime: $("#sLead").value, priceMode: $("#sPriceMode").value, ppnStyle: $("#sPpnStyle").value, reviewDays: $("#sReview").value, serviceLevel: $("#sService").value, windowMonths: $("#sWindow").value });
     m.className = "okmsg";
     m.textContent = "Saved";
     S.loaded = false; // the server may clamp values

@@ -236,7 +236,7 @@ test("invoices: draft, ledger check, stock check, issue, numbering, payments, vo
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.match(r.body.number, /^HM\/\d{4}\/\d{2}\/\d{4}$/);
   const firstSeq = Number(r.body.number.slice(-4));
-  assert.equal(r.body.total, 1109999);
+  assert.equal(r.body.total, 1110000, "PPN 11% of the price by default");
 
   let st = (await call("GET", "/api/state")).body;
   assert.equal(st.items["PPN~I1"].qty, 6, "stock went down");
@@ -246,7 +246,8 @@ test("invoices: draft, ledger check, stock check, issue, numbering, payments, vo
   let i = st.invoices.find((x) => x.id === inv);
   assert.equal(i.status, "issued");
   assert.equal(i.custName, "PT Pelanggan");
-  assert.equal(i.ppn, 109999);
+  assert.equal(i.ppn, 110000);
+  assert.equal(i.dppLain, 0);
 
   // issued: lines locked, but e-Faktur number can be added
   assert.equal((await call("PUT", `/api/invoices/${inv}`, { nsfp: "04002600000001", lines: [] })).status, 200);
@@ -257,7 +258,7 @@ test("invoices: draft, ledger check, stock check, issue, numbering, payments, vo
 
   // payments
   assert.equal((await call("POST", `/api/invoices/${inv}/payments`, { amount: 2000000 })).status, 400, "can't overpay");
-  assert.equal((await call("POST", `/api/invoices/${inv}/payments`, { amount: 1000000, method: "transfer" })).body.balance, 109999);
+  assert.equal((await call("POST", `/api/invoices/${inv}/payments`, { amount: 1000000, method: "transfer" })).body.balance, 110000);
   assert.equal((await call("POST", `/api/invoices/${inv}/void`, { reason: "x" })).status, 409, "can't void with payments");
   st = (await call("GET", "/api/state")).body;
   const pay = st.invoices.find((x) => x.id === inv).payments[0];
@@ -294,6 +295,10 @@ test("settings: entities, prefixes, and saving the stock model keeps them", asyn
   assert.equal(s.footer, "Thank you");
   assert.equal(s.invoiceTerms, 14);
   assert.equal(s.leadTime, 30);
+  assert.equal(s.ppnStyle, "flat", "PPN 11% unless switched");
+  assert.equal((await call("PUT", "/api/settings", { ...s, ppnStyle: "coretax?" })).status, 400);
+  await call("PUT", "/api/settings", { ...s, ppnStyle: "dpp-lain" });
+  assert.equal((await call("GET", "/api/state")).body.settings.ppnStyle, "dpp-lain");
 });
 
 test("backup: owners get every record; staff are refused", async () => {

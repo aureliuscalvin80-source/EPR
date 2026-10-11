@@ -8,9 +8,11 @@ test("line amounts round to whole rupiah after discount", () => {
   assert.equal(lineAmount({ qty: 1, price: 5000, discPct: 150 }), 0, "discount is capped at 100%");
 });
 
-test("PPN at 11% uses DPP Nilai Lain 11/12 and 12%", () => {
-  const t = invoiceTotals([{ qty: 1, price: 1000000 }], "PPN", 11);
-  assert.deepEqual(t, { subtotal: 1000000, dppLain: 916666, ppn: 109999, total: 1109999, scheme: "dpp-lain" });
+test("PPN 11%: flat by default, or DPP Nilai Lain 11/12 × 12% in the Coretax format", () => {
+  const f11 = invoiceTotals([{ qty: 1, price: 1000000 }], "PPN", 11);
+  assert.deepEqual(f11, { subtotal: 1000000, dppLain: 0, ppn: 110000, total: 1110000, scheme: "flat", rate: 11 });
+  const t = invoiceTotals([{ qty: 1, price: 1000000 }], "PPN", 11, "excl", "dpp-lain");
+  assert.deepEqual(t, { subtotal: 1000000, dppLain: 916666, ppn: 109999, total: 1109999, scheme: "dpp-lain" }, "Rp 1 less after rounding");
   const flat = invoiceTotals([{ qty: 1, price: 1000000 }], "PPN", 12);
   assert.equal(flat.ppn, 120000);
   const non = invoiceTotals([{ qty: 2, price: 500 }], "NON", 11);
@@ -56,6 +58,7 @@ test("selling prices that include PPN: total as entered, DPP worked back", () =>
   assert.equal(t.total, 1110000);
   assert.equal(t.subtotal, 1000000);
   assert.equal(t.ppn, 110000);
-  assert.equal(t.dppLain, 916666);
+  assert.equal(t.scheme, "flat");
+  assert.equal(invoiceTotals([{ qty: 1, price: 1110000 }], "PPN", 11, "incl", "dpp-lain").dppLain, 916666);
   assert.deepEqual(lineNets([{ qty: 1, price: 555000 }, { qty: 1, price: 555000 }], 1000000), [500000, 500000]);
 });
