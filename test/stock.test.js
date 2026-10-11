@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normInv, ymAdd, demandStats, baseVars, evaluate, onOrderByItem, DEFAULT_SETTINGS } from "../public/js/stock.js";
+import { normInv, ymAdd, demandStats, baseVars, evaluate, onOrderByItem, roundOrder, DEFAULT_SETTINGS } from "../public/js/stock.js";
 
 const near = (a, b, eps = 1e-3) => assert.ok(Math.abs(a - b) < eps, `${a} ≉ ${b}`);
 
@@ -16,7 +16,7 @@ test("ymAdd crosses year boundaries", () => {
   assert.equal(ymAdd("2025-03", -15), "2023-12");
 });
 
-const it = { key: "PPN~A", sku: "A", tax: "PPN", unit: "PCS", qty: 5, price: 1000, minStock: 0 };
+const it = { key: "PPN~A", sku: "A", tax: "PPN", unit: "PCS", qty: 5, sellPrice: 1000, cost: 600, minStock: 0 };
 const salesHist = (months) => months.map((ym) => ({ kind: "sales", tax: "PPN", ym, check: "ok" }));
 
 test("demand stats: mean and sample standard deviation over the window", () => {
@@ -61,7 +61,8 @@ test("safety stock, reorder point and suggested order", () => {
 test("PPN prices: stored excluding vs including tax", () => {
   const excl = baseVars(it, new Map(), null, { ...DEFAULT_SETTINGS, ppnRate: 11, priceMode: "excl" });
   assert.equal(excl.price_incl, 1110);
-  assert.equal(excl.value, 5000);
+  assert.equal(excl.value, 3000, "value is qty × cost");
+  assert.equal(excl.margin_pct, 40);
   const incl = baseVars(it, new Map(), null, { ...DEFAULT_SETTINGS, ppnRate: 11, priceMode: "incl" });
   near(incl.price_excl, 900.9);
   const non = baseVars({ ...it, tax: "NON" }, new Map(), null, DEFAULT_SETTINGS);
@@ -69,7 +70,7 @@ test("PPN prices: stored excluding vs including tax", () => {
 });
 
 test("evaluate: columns feed later alerts; scope and pause are respected", () => {
-  const items = { [it.key]: it, "NON~B": { key: "NON~B", sku: "B", tax: "NON", unit: "PCS", qty: 0, price: 0, minStock: 2 } };
+  const items = { [it.key]: it, "NON~B": { key: "NON~B", sku: "B", tax: "NON", unit: "PCS", qty: 0, sellPrice: 0, minStock: 2 } };
   const rules = [
     { id: "c1", name: "Double qty", kind: "column", scope: "ALL", expr: "qty * 2" },
     { id: "a1", name: "Low", kind: "alert", scope: "ALL", severity: "crit", expr: "col_double_qty < 4" },
@@ -111,4 +112,14 @@ test("invoices count as sales for months without an uploaded report; reports win
   const d = stats.get(it.key);
   assert.equal(d.n, 4);
   assert.equal(d.mean, 25, "Feb uses the report (10), not the invoices (999)");
+});
+
+test("suggested orders round up to MOQ and order multiple", () => {
+  assert.equal(roundOrder(0, 50, 10), 0);
+  assert.equal(roundOrder(7, 50, 0), 50);
+  assert.equal(roundOrder(53, 50, 12), 60);
+  assert.equal(roundOrder(3.2, 0, 0), 4);
+  const s = { ...DEFAULT_SETTINGS, leadTime: 30, reviewDays: 30, serviceLevel: 95 };
+  const v = baseVars({ ...it, moq: 120, lot: 24 }, new Map(), { n: 12, mean: 30.4, sd: 10, so: 0, mixed: 0 }, s, 0);
+  assert.equal(v.suggested_order, 120, "109 needed → MOQ 120 (already a multiple of 24)");
 });

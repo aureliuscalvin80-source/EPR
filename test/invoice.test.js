@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { lineAmount, invoiceTotals, terbilang, paymentState, invoiceHtml, invoiceMessage } from "../public/js/invoice.js";
+import { lineAmount, invoiceTotals, lineNets, terbilang, paymentState, invoiceHtml, invoiceMessage } from "../public/js/invoice.js";
 
 test("line amounts round to whole rupiah after discount", () => {
   assert.equal(lineAmount({ qty: 3, price: 10000, discPct: 0 }), 30000);
@@ -44,8 +44,18 @@ test("printable invoice escapes text and shows tax lines", () => {
   assert.match(html, /PPN 12%/);
   assert.match(html, /No\. Faktur Pajak/);
   assert.match(html, /Satu juta seratus sembilan ribu/);
+  assert.match(html, /bukan Faktur Pajak/);
   const msg = invoiceMessage({ customer: { contact: "Pak Budi" }, inv, issuer: { name: "CV Hashiru", bank: "BCA 123" }, balance: 1109999 });
   assert.match(msg, /^Yth\. Pak Budi,/);
   assert.match(msg, /INV\/P\/2026\/0001/);
   assert.match(msg, /BCA 123/);
+});
+
+test("selling prices that include PPN: total as entered, DPP worked back", () => {
+  const t = invoiceTotals([{ qty: 1, price: 1110000 }], "PPN", 11, "incl");
+  assert.equal(t.total, 1110000);
+  assert.equal(t.subtotal, 1000000);
+  assert.equal(t.ppn, 110000);
+  assert.equal(t.dppLain, 916666);
+  assert.deepEqual(lineNets([{ qty: 1, price: 555000 }, { qty: 1, price: 555000 }], 1000000), [500000, 500000]);
 });

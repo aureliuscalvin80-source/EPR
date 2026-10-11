@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS moves (
   key  TEXT NOT NULL,
   sku  TEXT NOT NULL,
   tax  TEXT NOT NULL,
-  type TEXT NOT NULL CHECK (type IN ('IN','OUT','ADJ')),
+  type TEXT NOT NULL,
   qty  REAL NOT NULL,
   note TEXT NOT NULL DEFAULT ''
 );
@@ -211,6 +211,21 @@ CREATE TABLE IF NOT EXISTS invoice_payments (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS invoice_payments_inv ON invoice_payments (invoice_id);
+-- Payments to suppliers against purchase orders, in the order's currency, with the rate actually paid.
+CREATE TABLE IF NOT EXISTS supplier_payments (
+  id         TEXT PRIMARY KEY,
+  po_id      TEXT NOT NULL,
+  pay_date   TEXT NOT NULL,
+  amount     REAL NOT NULL,
+  currency   TEXT NOT NULL,
+  fx         REAL NOT NULL,
+  idr        REAL NOT NULL,
+  method     TEXT NOT NULL,
+  note       TEXT NOT NULL DEFAULT '',
+  created_by TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS supplier_payments_po ON supplier_payments (po_id);
 `;
 
 /** Columns added after the first release; ALTER them into databases created before. */
@@ -218,7 +233,45 @@ const MIGRATIONS = [
   ["items", "supplier_id", "TEXT"],
   ["moves", "user_name", "TEXT NOT NULL DEFAULT ''"],
   ["items", "sell_price", "REAL NOT NULL DEFAULT 0"],
+  ["items", "moq", "REAL NOT NULL DEFAULT 0"],
+  ["items", "lot", "REAL NOT NULL DEFAULT 0"],
+  ["items", "last_fob", "REAL NOT NULL DEFAULT 0"],
+  ["items", "last_cur", "TEXT NOT NULL DEFAULT ''"],
+  ["customers", "terms", "INTEGER"],
+  ["customers", "internal", "INTEGER NOT NULL DEFAULT 0"],
+  ["customers", "ledger", "TEXT NOT NULL DEFAULT ''"],
+  ["suppliers", "currency", "TEXT NOT NULL DEFAULT 'IDR'"],
+  ["suppliers", "terms", "INTEGER"],
+  ["suppliers", "npwp", "TEXT NOT NULL DEFAULT ''"],
+  ["suppliers", "address", "TEXT NOT NULL DEFAULT ''"],
+  ["invoices", "terms", "INTEGER NOT NULL DEFAULT 0"],
+  ["invoices", "transfer_to", "TEXT NOT NULL DEFAULT ''"],
+  ["invoices", "internal", "INTEGER NOT NULL DEFAULT 0"],
+  ["purchase_orders", "ledger", "TEXT NOT NULL DEFAULT ''"],
+  ["purchase_orders", "order_date", "TEXT NOT NULL DEFAULT ''"],
+  ["purchase_orders", "eta", "TEXT NOT NULL DEFAULT ''"],
+  ["purchase_orders", "currency", "TEXT NOT NULL DEFAULT 'IDR'"],
+  ["purchase_orders", "fx", "REAL NOT NULL DEFAULT 1"],
+  ["purchase_orders", "freight", "REAL NOT NULL DEFAULT 0"],
+  ["purchase_orders", "duty", "REAL NOT NULL DEFAULT 0"],
+  ["purchase_orders", "other_cost", "REAL NOT NULL DEFAULT 0"],
 ];
+
+/** Tables whose CHECK constraint was loosened later; rebuilt once, keeping every row. */
+function relaxMovesType(db) {
+  const sql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'moves'").get()?.sql || "";
+  if (!/CHECK \(type IN/.test(sql)) return;
+  tx(db, () => {
+    const cols = db.prepare("SELECT name FROM pragma_table_info('moves')").all().map((c) => c.name).join(", ");
+    db.exec("ALTER TABLE moves RENAME TO moves_old");
+    db.exec(`CREATE TABLE moves (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, t INTEGER NOT NULL, key TEXT NOT NULL, sku TEXT NOT NULL, tax TEXT NOT NULL,
+      type TEXT NOT NULL, qty REAL NOT NULL, note TEXT NOT NULL DEFAULT '', user_name TEXT NOT NULL DEFAULT '')`);
+    db.exec(`INSERT INTO moves (${cols}) SELECT ${cols} FROM moves_old`);
+    db.exec("DROP TABLE moves_old");
+    db.exec("CREATE INDEX IF NOT EXISTS moves_t ON moves (t)");
+  });
+}
 
 // Starter formulas that predate purchase orders: count stock already on order, so items on an open PO stop alerting.
 // Only formulas still exactly as shipped are changed.
@@ -243,6 +296,10 @@ export function openDb(file) {
     if (!db.prepare(`SELECT 1 FROM pragma_table_info('${table}') WHERE name = ?`).get(col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`);
   }
   for (const [from, to] of RULE_UPGRADES) db.prepare("UPDATE rules SET expr = ? WHERE expr = ?").run(to, from);
+  relaxMovesType(db);
+  // Purchase orders from before ledgers existed: take the ledger of their first line.
+  db.exec(`UPDATE purchase_orders SET ledger = COALESCE((SELECT tax FROM po_lines WHERE po_id = purchase_orders.id ORDER BY pos LIMIT 1), 'PPN') WHERE ledger = ''`);
+  db.exec(`UPDATE purchase_orders SET order_date = date(created_at / 1000, 'unixepoch', 'localtime') WHERE order_date = ''`);
   // First run: write default settings and a starter set of formulas.
   if (!db.prepare("SELECT 1 FROM settings WHERE id = 1").get()) {
     tx(db, () => {

@@ -74,7 +74,11 @@ test("admin manages users; roles limit what each can do", async () => {
   assert.equal((await call("POST", "/api/items", { sku: "V1", tax: "PPN", name: "x" }, viewer)).status, 403);
   // staff: day-to-day work, but not admin things
   assert.equal((await call("POST", "/api/items", { sku: "S1", tax: "PPN", name: "Staff item", qty: 1 }, staff)).status, 200);
-  assert.equal((await call("POST", "/api/moves", { key: "PPN~S1", type: "IN", qty: 2 }, staff)).status, 200);
+  assert.equal((await call("POST", "/api/moves", { key: "PPN~S1", type: "IN", qty: 2, note: "count" }, staff)).status, 200);
+  assert.equal((await call("POST", "/api/pos", { supplierId: "x" }, staff)).status, 403, "purchasing is owner-only");
+  const sst = (await call("GET", "/api/state", null, staff)).body;
+  assert.equal(sst.owner, false);
+  assert.equal(sst.items["PPN~S1"].cost, 0, "staff don't see costs");
   assert.equal((await call("DELETE", "/api/items/" + encodeURIComponent("PPN~S1"), null, staff)).status, 403);
   assert.equal((await call("PUT", "/api/settings", { ppnRate: 12, leadTime: 1, priceMode: "excl", reviewDays: 1 }, staff)).status, 403);
   assert.equal((await call("GET", "/api/users", null, staff)).status, 403);

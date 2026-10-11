@@ -12,11 +12,17 @@ export const lineAmount = (l) => Math.round((+l.qty || 0) * (+l.price || 0) * (1
  * Invoice totals. Non-PPN: total = subtotal.
  * PPN at the 11 % effective rate uses the 2025 scheme: DPP Nilai Lain = 11/12 × selling price, PPN = 12 % of that
  * (rounded down to whole rupiah, as e-Faktur does). Any other rate is applied to the full subtotal.
+ * priceMode "incl": the line prices already include PPN; the total stays as entered and DPP is worked back from it.
  */
-export function invoiceTotals(lines, tax, ppnRate) {
-  const subtotal = lines.reduce((a, l) => a + lineAmount(l), 0);
-  if (tax !== "PPN") return { subtotal, dppLain: 0, ppn: 0, total: subtotal, scheme: "none" };
+export function invoiceTotals(lines, tax, ppnRate, priceMode = "excl") {
+  const gross = lines.reduce((a, l) => a + lineAmount(l), 0);
+  if (tax !== "PPN") return { subtotal: gross, dppLain: 0, ppn: 0, total: gross, scheme: "none" };
   const rate = +ppnRate || 0;
+  if (priceMode === "incl") {
+    const subtotal = Math.round(gross / (1 + rate / 100));
+    return { subtotal, dppLain: rate === 11 ? Math.floor((subtotal * 11) / 12) : 0, ppn: gross - subtotal, total: gross, scheme: rate === 11 ? "dpp-lain" : "flat", rate };
+  }
+  const subtotal = gross;
   if (rate === 11) {
     const dppLain = Math.floor((subtotal * 11) / 12);
     const ppn = Math.floor((dppLain * 12) / 100);
@@ -24,6 +30,13 @@ export function invoiceTotals(lines, tax, ppnRate) {
   }
   const ppn = Math.floor((subtotal * rate) / 100);
   return { subtotal, dppLain: 0, ppn, total: subtotal + ppn, scheme: "flat", rate };
+}
+
+/** Each line's net sales excluding PPN (for margin and transfer cost), scaled when prices include PPN. */
+export function lineNets(lines, subtotal) {
+  const gross = lines.reduce((a, l) => a + lineAmount(l), 0);
+  const f = gross ? subtotal / gross : 1;
+  return lines.map((l) => Math.round(lineAmount(l) * f));
 }
 
 /** Payment state of an issued invoice. */
@@ -73,7 +86,7 @@ ${issuer?.name || ""}`.trim();
 
 /** Complete, printable HTML document for one invoice (A4). */
 export function invoiceHtml({ inv, lines, issuer = {}, payments = [], ppnRate }) {
-  const t = inv.status === "draft" ? invoiceTotals(lines, inv.tax, ppnRate) : { subtotal: inv.subtotal, dppLain: inv.dppLain, ppn: inv.ppn, total: inv.total, scheme: inv.dppLain ? "dpp-lain" : inv.ppn ? "flat" : "none" };
+  const t = inv.status === "draft" ? invoiceTotals(lines, inv.tax, ppnRate, inv.priceMode) : { subtotal: inv.subtotal, dppLain: inv.dppLain, ppn: inv.ppn, total: inv.total, scheme: inv.dppLain ? "dpp-lain" : inv.ppn ? "flat" : "none" };
   const paid = payments.reduce((a, p) => a + p.amount, 0);
   const cust = inv.status === "draft" ? inv.customer || {} : { name: inv.custName, address: inv.custAddress, npwp: inv.custNpwp };
   const anyDisc = lines.some((l) => +l.discPct);
@@ -139,6 +152,7 @@ export function invoiceHtml({ inv, lines, issuer = {}, payments = [], ppnRate })
       <tr class="grand"><td>Total</td><td>${rp(t.total)}</td></tr>
       ${paid ? `<tr><td class="muted">Dibayar</td><td>${rp(paid)}</td></tr><tr><td><b>Sisa tagihan</b></td><td><b>${rp(Math.max(0, t.total - paid))}</b></td></tr>` : ""}</table></div>
   ${inv.note ? `<p><span class="lbl">Catatan</span><br>${esc(inv.note).replace(/\n/g, "<br>")}</p>` : ""}
+  ${inv.tax === "PPN" ? `<p class="muted" style="font-size:10px">Dokumen ini bukan Faktur Pajak. Faktur Pajak diterbitkan terpisah melalui Coretax.</p>` : ""}
   <div class="foot"><div>${issuer.bank ? `<div class="lbl">Pembayaran</div>${esc(issuer.bank).replace(/\n/g, "<br>")}` : ""}${issuer.footer ? `<p class="muted">${esc(issuer.footer)}</p>` : ""}</div>
     <div class="sign">Hormat kami,<div class="line">${esc(issuer.name || "")}</div></div></div>
 </div></body></html>`;

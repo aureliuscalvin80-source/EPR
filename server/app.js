@@ -7,7 +7,7 @@ import { openDb, tx } from "./db.js";
 import { HttpError } from "./http.js";
 import { applyReports } from "./reports.js";
 import { createAuth, makeSetupCode } from "./auth.js";
-import { createPurchasing, listPos, supplierHasPos } from "./purchasing.js";
+import { createPurchasing, listPos, listSupplierPays, supplierHasPos } from "./purchasing.js";
 import { createSales, listCustomers, listInvoices, invoiceDemand } from "./sales.js";
 import { str, numIn, oneOf, itemFields, ruleFields, supplierFields } from "./validate.js";
 import { DEFAULT_SETTINGS } from "../public/js/stock.js";
@@ -20,8 +20,11 @@ const MAX_UPLOAD = 15 * 1024 * 1024;
 const MOVE_DAYS = 31;
 
 // ---------- row → API shape ----------
-const itemOut = (r) => ({ key: r.key, sku: r.sku, tax: r.tax, name: r.name, unit: r.unit, qty: r.qty, price: r.price, minStock: r.min_stock, sellPrice: r.sell_price, supplierId: r.supplier_id || "", updatedAt: r.updated_at });
-const supplierOut = (r) => ({ id: r.id, company: r.company, contact: r.contact, wechat: r.wechat, whatsapp: r.whatsapp, email: r.email, phone: r.phone, preferred: r.preferred, notes: r.notes });
+// "cost" is the average landed cost per unit (owners only); "sellPrice" is the selling price.
+const itemOut = (r) => ({ key: r.key, sku: r.sku, tax: r.tax, name: r.name, unit: r.unit, qty: r.qty, cost: r.price, minStock: r.min_stock, sellPrice: r.sell_price,
+  moq: r.moq, lot: r.lot, lastFob: r.last_fob, lastCur: r.last_cur, supplierId: r.supplier_id || "", updatedAt: r.updated_at });
+const supplierOut = (r) => ({ id: r.id, company: r.company, contact: r.contact, wechat: r.wechat, whatsapp: r.whatsapp, email: r.email, phone: r.phone, preferred: r.preferred,
+  notes: r.notes, currency: r.currency, terms: r.terms, npwp: r.npwp, address: r.address });
 const ruleOut = (r) => ({ id: r.id, name: r.name, kind: r.kind, scope: r.scope, severity: r.severity, expr: r.expr, enabled: !!r.enabled, createdAt: r.created_at });
 const histOut = (r) => ({ id: r.id, fileId: r.file_id, file: r.file, kind: r.kind, tax: r.tax, ym: r.ym, check: r.status, msg: r.msg, lines: r.lines, skus: r.skus, qty: r.qty, rp: r.rp, otherUnits: r.other_units });
 
@@ -83,18 +86,39 @@ export function createApp({ dataDir, setupCode = makeSetupCode(), secureCookies 
     }
   };
 
-  const DEFAULT_ISSUER = { name: "", address: "", phone: "", npwp: "", bank: "", footer: "" };
+  // The two companies behind the ledgers. Invoices carry their name, NPWP and number prefix.
+  const DEFAULT_ENT = {
+    PPN: { name: "CV. Hashiru Motorindo", prefix: "HM", npwp: "", address: "", phone: "", bank: "" },
+    NON: { name: "CV. Amasan Mega Bersama", prefix: "AMB", npwp: "", address: "", phone: "", bank: "" },
+  };
   const getSettings = () => {
-    const s = { ...DEFAULT_SETTINGS, invoiceTerms: 30, ...JSON.parse(db.prepare("SELECT json FROM settings WHERE id = 1").get().json) };
-    s.issuer = { PPN: { ...DEFAULT_ISSUER, ...s.issuer?.PPN }, NON: { ...DEFAULT_ISSUER, ...s.issuer?.NON } };
+    const s = { ...DEFAULT_SETTINGS, invoiceTerms: 90, footer: "", ...JSON.parse(db.prepare("SELECT json FROM settings WHERE id = 1").get().json) };
+    const ent = {};
+    for (const t of ["PPN", "NON"]) {
+      // Earlier versions stored the letterhead as "issuer"; carry its filled-in fields over.
+      const legacy = Object.fromEntries(Object.entries(s.issuer?.[t] || {}).filter(([k, v]) => v && k !== "footer"));
+      ent[t] = { ...DEFAULT_ENT[t], ...legacy, ...s.ent?.[t] };
+    }
+    if (!s.footer) s.footer = s.issuer?.PPN?.footer || s.issuer?.NON?.footer || "";
+    s.ent = ent;
+    delete s.issuer;
     return s;
   };
   const saveSettings = (patch) => db.prepare("UPDATE settings SET json = ? WHERE id = 1").run(JSON.stringify({ ...getSettings(), ...patch }));
 
   // ---------- state ----------
   app.get("/api/state", (req, res) => {
+    // Owners (admins) see costs, purchasing and money. Staff and viewers get stock and sales without them.
+    const owner = req.user.role === "admin";
+    const onOrder = new Map(db.prepare(`SELECT l.item_key AS k, SUM(MAX(0, l.qty - l.received)) AS q FROM po_lines l JOIN purchase_orders p ON p.id = l.po_id
+      WHERE p.status IN ('sent','partial') GROUP BY l.item_key`).all().map((r) => [r.k, r.q]));
     const items = {};
-    for (const r of db.prepare("SELECT * FROM items").all()) items[r.key] = itemOut(r);
+    for (const r of db.prepare("SELECT * FROM items").all()) {
+      const it = itemOut(r);
+      it.onOrder = onOrder.get(r.key) || 0;
+      if (!owner) { it.cost = 0; it.lastFob = 0; it.lastCur = ""; }
+      items[r.key] = it;
+    }
     const dem = {};
     for (const r of db.prepare("SELECT * FROM demand").all()) {
       const d = (dem[keyOf(r.tax, r.sku)] ??= { m: {}, s: {} });
@@ -108,15 +132,17 @@ export function createApp({ dataDir, setupCode = makeSetupCode(), secureCookies 
       dem,
       rules: db.prepare("SELECT * FROM rules ORDER BY created_at").all().map(ruleOut),
       suppliers: db.prepare("SELECT * FROM suppliers ORDER BY company COLLATE NOCASE").all().map(supplierOut),
-      pos: listPos(db),
+      pos: owner ? listPos(db) : [],
+      supplierPays: owner ? listSupplierPays(db) : [],
       customers: listCustomers(db),
-      invoices: listInvoices(db),
+      invoices: owner ? listInvoices(db) : listInvoices(db).map(({ payments, paid, ...i }) => ({ ...i, payments: [], paid: 0 })),
       invDem: invoiceDemand(db),
       files,
       history: db.prepare("SELECT * FROM history").all().map(histOut),
       moves: db.prepare("SELECT * FROM moves WHERE t >= ? ORDER BY t DESC").all(Date.now() - MOVE_DAYS * 864e5)
         .map((m) => ({ id: m.id, t: m.t, key: m.key, sku: m.sku, tax: m.tax, type: m.type, qty: m.qty, note: m.note, by: m.user_name })),
       settings: getSettings(),
+      owner,
       usage: { bytes: files.reduce((a, f) => a + f.size, 0) },
     });
   });
@@ -146,8 +172,10 @@ export function createApp({ dataDir, setupCode = makeSetupCode(), secureCookies 
     const key = keyOf(tax, sku);
     if (db.prepare("SELECT 1 FROM items WHERE key = ?").get(key))
       throw new HttpError(409, `${sku} already exists in the ${tax === "PPN" ? "PPN" : "Non-PPN"} ledger. Edit that one instead.`);
-    db.prepare("INSERT INTO items (key, sku, tax, name, unit, qty, price, min_stock, sell_price, supplier_id, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(key, sku, tax, f.name, f.unit, f.qty, f.price, f.minStock, f.sellPrice, supplierIdIn(req.body.supplierId), Date.now());
+    const cost = req.user.role === "admin" ? f.cost : 0;
+    db.prepare("INSERT INTO items (key, sku, tax, name, unit, qty, price, min_stock, sell_price, moq, lot, supplier_id, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(key, sku, tax, f.name, f.unit, f.qty, cost, f.minStock, f.sellPrice, f.moq, f.lot, supplierIdIn(req.body.supplierId), Date.now());
+    if (f.qty) addMove({ key, sku, tax }, "ADJ", f.qty, "Opening stock", req.user);
     return { key };
   }));
 
@@ -157,8 +185,10 @@ export function createApp({ dataDir, setupCode = makeSetupCode(), secureCookies 
     const supplierId = supplierIdIn(req.body.supplierId);
     tx(db, () => {
       const prev = getItem(req.params.key);
-      db.prepare("UPDATE items SET name = ?, unit = ?, qty = ?, price = ?, min_stock = ?, sell_price = ?, supplier_id = ?, updated_at = ? WHERE key = ?")
-        .run(f.name, f.unit, f.qty, f.price, f.minStock, f.sellPrice, supplierId, Date.now(), prev.key);
+      // Only owners can see or change the cost; for others it keeps its stored value.
+      const cost = req.user.role === "admin" && req.body.cost !== undefined ? f.cost : prev.price;
+      db.prepare("UPDATE items SET name = ?, unit = ?, qty = ?, price = ?, min_stock = ?, sell_price = ?, moq = ?, lot = ?, supplier_id = ?, updated_at = ? WHERE key = ?")
+        .run(f.name, f.unit, f.qty, cost, f.minStock, f.sellPrice, f.moq, f.lot, supplierId, Date.now(), prev.key);
       if (prev.qty !== f.qty) addMove(prev, "ADJ", f.qty - prev.qty, "Edited in product form", req.user);
     });
   }));
@@ -170,25 +200,38 @@ export function createApp({ dataDir, setupCode = makeSetupCode(), secureCookies 
   app.post("/api/items/import", need("staff"), json, write((req) => {
     const rows = req.body.rows;
     if (!Array.isArray(rows) || !rows.length) throw new HttpError(400, "No rows to import.");
+    const owner = req.user.role === "admin";
     const now = Date.now();
-    // Sell price is only overwritten when the file has a sell-price column.
-    const upsert = (withSell) => db.prepare(`INSERT INTO items (key, sku, tax, name, unit, qty, price, min_stock, sell_price, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT (key) DO UPDATE SET name = excluded.name, unit = excluded.unit, qty = excluded.qty, price = excluded.price,
-        min_stock = excluded.min_stock,${withSell ? " sell_price = excluded.sell_price," : ""} updated_at = excluded.updated_at`);
-    const upWith = upsert(true), upWithout = upsert(false);
-    let n = 0;
+    const num = (v, label) => numIn(v, label, { min: 0 });
+    let added = 0, updated = 0;
     tx(db, () => {
       for (const r of rows) {
         const sku = str(r.sku, 100);
         if (!sku || sku.includes("~")) continue;
         const tax = oneOf(r.tax, ["PPN", "NON"], "Ledger");
-        const f = itemFields(r);
-        const hasSell = r.sellPrice !== undefined && r.sellPrice !== null && r.sellPrice !== "";
-        (hasSell ? upWith : upWithout).run(keyOf(tax, sku), sku, tax, f.name, f.unit, f.qty, f.price, f.minStock, f.sellPrice, now);
-        n++;
+        const key = keyOf(tax, sku);
+        // Only the columns the file has are written; the rest keep their current values. Costs only from owners.
+        const set = { name: str(r.name) || undefined };
+        if (r.unit !== undefined) set.unit = oneOf(r.unit, ["PCS", "SET"], "Unit");
+        if (r.qty !== undefined) set.qty = numIn(r.qty, "Quantity");
+        if (r.sellPrice !== undefined) set.sell_price = num(r.sellPrice, "Selling price");
+        if (r.cost !== undefined && owner) set.price = num(r.cost, "Cost");
+        if (r.minStock !== undefined) set.min_stock = num(r.minStock, "Min stock");
+        if (r.moq !== undefined) set.moq = num(r.moq, "MOQ");
+        const cols = Object.entries(set).filter(([, v]) => v !== undefined);
+        if (db.prepare("SELECT 1 FROM items WHERE key = ?").get(key)) {
+          const upd = cols.filter(([k]) => k !== "unit"); // don't flip PCS/SET on an existing product
+          if (upd.length) db.prepare(`UPDATE items SET ${upd.map(([k]) => k + " = ?").join(", ")}, updated_at = ? WHERE key = ?`).run(...upd.map(([, v]) => v), now, key);
+          updated++;
+        } else {
+          const all = [["key", key], ["sku", sku], ["tax", tax], ["updated_at", now], ...cols];
+          if (!set.name) all.push(["name", sku]);
+          db.prepare(`INSERT INTO items (${all.map(([k]) => k).join(", ")}) VALUES (${all.map(() => "?").join(", ")})`).run(...all.map(([, v]) => v));
+          added++;
+        }
       }
     });
-    return { imported: n };
+    return { imported: added + updated, added, updated };
   }));
 
   app.post("/api/items/remove-demo", need("admin"), write(() => {
@@ -200,6 +243,7 @@ export function createApp({ dataDir, setupCode = makeSetupCode(), secureCookies 
       db.prepare("DELETE FROM invoice_payments WHERE invoice_id IN (SELECT id FROM invoices WHERE customer_id IN (SELECT id FROM customers WHERE name LIKE '[Demo]%'))").run();
       db.prepare("DELETE FROM invoices WHERE customer_id IN (SELECT id FROM customers WHERE name LIKE '[Demo]%')").run();
       db.prepare("DELETE FROM customers WHERE name LIKE '[Demo]%'").run();
+      db.prepare(`DELETE FROM supplier_payments WHERE po_id IN (SELECT id FROM purchase_orders WHERE supplier_id IN (${demoSuppliers}))`).run();
       db.prepare(`DELETE FROM po_lines WHERE po_id IN (SELECT id FROM purchase_orders WHERE supplier_id IN (${demoSuppliers}))`).run();
       db.prepare(`DELETE FROM purchase_orders WHERE supplier_id IN (${demoSuppliers})`).run();
       db.prepare(`UPDATE items SET supplier_id = NULL WHERE supplier_id IN (${demoSuppliers})`).run();
@@ -212,6 +256,7 @@ export function createApp({ dataDir, setupCode = makeSetupCode(), secureCookies 
   app.post("/api/moves", need("staff"), json, write((req) => {
     const type = oneOf(req.body.type, ["IN", "OUT", "ADJ"], "Type");
     const q = numIn(req.body.qty, "Quantity", { min: 0 });
+    if (!str(req.body.note)) throw new HttpError(400, "Add a reason, so the change can be traced later.");
     // Read and write in one transaction so two people booking at once can't lose a movement.
     return tx(db, () => {
       const it = getItem(str(req.body.key, 200));
@@ -235,14 +280,16 @@ export function createApp({ dataDir, setupCode = makeSetupCode(), secureCookies 
     const f = supplierFields(req.body);
     const id = randomUUID();
     const now = Date.now();
-    db.prepare("INSERT INTO suppliers (id, company, contact, wechat, whatsapp, email, phone, preferred, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(id, f.company, f.contact, f.wechat, f.whatsapp, f.email, f.phone, f.preferred, f.notes, now, now);
+    db.prepare(`INSERT INTO suppliers (id, company, contact, wechat, whatsapp, email, phone, preferred, notes, currency, terms, npwp, address, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, f.company, f.contact, f.wechat, f.whatsapp, f.email, f.phone, f.preferred, f.notes, f.currency, f.terms, f.npwp, f.address, now, now);
     return { id };
   }));
   app.put("/api/suppliers/:id", need("staff"), json, write((req) => {
     const f = supplierFields(req.body);
-    const res = db.prepare("UPDATE suppliers SET company = ?, contact = ?, wechat = ?, whatsapp = ?, email = ?, phone = ?, preferred = ?, notes = ?, updated_at = ? WHERE id = ?")
-      .run(f.company, f.contact, f.wechat, f.whatsapp, f.email, f.phone, f.preferred, f.notes, Date.now(), req.params.id);
+    const res = db.prepare(`UPDATE suppliers SET company = ?, contact = ?, wechat = ?, whatsapp = ?, email = ?, phone = ?, preferred = ?, notes = ?,
+      currency = ?, terms = ?, npwp = ?, address = ?, updated_at = ? WHERE id = ?`)
+      .run(f.company, f.contact, f.wechat, f.whatsapp, f.email, f.phone, f.preferred, f.notes, f.currency, f.terms, f.npwp, f.address, Date.now(), req.params.id);
     if (!res.changes) throw new HttpError(404, "This supplier no longer exists.");
   }));
   app.delete("/api/suppliers/:id", need("admin"), write((req) => {
@@ -330,13 +377,16 @@ export function createApp({ dataDir, setupCode = makeSetupCode(), secureCookies 
 
   // Invoice letterhead per ledger, and default payment terms.
   app.put("/api/settings/invoicing", need("admin"), json, write((req) => {
-    const issuer = {};
+    const ent = {};
     for (const t of ["PPN", "NON"]) {
-      const b = req.body.issuer?.[t] || {};
-      issuer[t] = { name: str(b.name, 200), address: str(b.address, 1000), phone: str(b.phone, 60), npwp: str(b.npwp, 40), bank: str(b.bank, 500), footer: str(b.footer, 500) };
+      const b = req.body.ent?.[t] || {};
+      ent[t] = { name: str(b.name, 200), prefix: str(b.prefix, 12).replace(/[\/\s]/g, "-").toUpperCase(), npwp: str(b.npwp, 40), address: str(b.address, 1000), phone: str(b.phone, 60), bank: str(b.bank, 500) };
+      if (!ent[t].name) throw new HttpError(400, `Enter the ${t === "PPN" ? "PPN" : "Non-PPN"} entity name.`);
+      if (!ent[t].prefix) throw new HttpError(400, `Enter an invoice prefix for ${ent[t].name}.`);
     }
+    if (ent.PPN.prefix === ent.NON.prefix) throw new HttpError(400, "Give each entity its own invoice prefix.");
     const invoiceTerms = Math.min(365, Math.max(0, Math.round(numIn(req.body.invoiceTerms, "Payment terms", { min: 0 }))));
-    saveSettings({ issuer, invoiceTerms });
+    saveSettings({ ent, invoiceTerms, footer: str(req.body.footer, 1000), issuer: undefined });
   }));
 
   // ---------- sales: customers and invoices ----------
@@ -345,10 +395,29 @@ export function createApp({ dataDir, setupCode = makeSetupCode(), secureCookies 
   app.use("/api/invoices", sales.invoices);
 
   // ---------- purchase orders ----------
-  app.use("/api/pos", createPurchasing(db, { need, write, addMove }));
+  app.use("/api/pos", createPurchasing(db, { need, write, addMove, getSettings }));
 
   // ---------- reports ----------
   app.post("/api/reports", need("staff"), json, write((req) => ({ message: applyReports(db, req.body.results, !!req.body.setStock) })));
+
+  // ---------- backup ----------
+  // Every record, not just the recent window the app loads, for the owner's Excel backup.
+  app.get("/api/backup", need("admin"), (req, res) => {
+    const all = (sql) => db.prepare(sql).all();
+    res.json({
+      settings: getSettings(),
+      items: all("SELECT * FROM items ORDER BY tax, sku"),
+      customers: all("SELECT * FROM customers ORDER BY name COLLATE NOCASE"),
+      suppliers: all("SELECT * FROM suppliers ORDER BY company COLLATE NOCASE"),
+      invoices: all("SELECT * FROM invoices ORDER BY inv_date, number"),
+      invoiceLines: all("SELECT l.*, i.number AS invoice_number FROM invoice_lines l JOIN invoices i ON i.id = l.invoice_id ORDER BY i.inv_date, i.number, l.pos"),
+      invoicePays: all("SELECT p.*, i.number AS invoice_number FROM invoice_payments p JOIN invoices i ON i.id = p.invoice_id ORDER BY p.pay_date"),
+      pos: all("SELECT * FROM purchase_orders ORDER BY created_at"),
+      poLines: all("SELECT l.*, p.number AS po_number FROM po_lines l JOIN purchase_orders p ON p.id = l.po_id ORDER BY p.created_at, l.pos"),
+      supplierPays: all("SELECT s.*, p.number AS po_number FROM supplier_payments s JOIN purchase_orders p ON p.id = s.po_id ORDER BY s.pay_date"),
+      moves: all("SELECT * FROM moves ORDER BY t"),
+    });
+  });
 
   app.use("/api", (req, res) => res.status(404).json({ error: "Not found" }));
   // SheetJS is served locally so spreadsheets can be read without internet access.

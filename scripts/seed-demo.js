@@ -19,13 +19,13 @@ const items = [
 const now = Date.now();
 // Company names start with "[Demo]" so "Remove examples" can find them.
 const suppliers = [
-  { id: randomUUID(), company: "[Demo] Sumber Jaya Parts", contact: "Budi Santoso", whatsapp: "0812 3456 7890", email: "sales@example.com", preferred: "whatsapp" },
-  { id: randomUUID(), company: "[Demo] Guangzhou Auto Parts", contact: "Li Wei", wechat: "liwei_parts", email: "liwei@example.com", preferred: "wechat" },
+  { id: randomUUID(), company: "[Demo] Sumber Jaya Parts", contact: "Budi Santoso", whatsapp: "0812 3456 7890", email: "sales@example.com", preferred: "whatsapp", currency: "IDR", terms: 30 },
+  { id: randomUUID(), company: "[Demo] Guangzhou Auto Parts", contact: "Li Wei", wechat: "liwei_parts", email: "liwei@example.com", preferred: "wechat", currency: "CNY", terms: 0 },
 ];
 tx(db, () => {
   db.prepare("DELETE FROM suppliers WHERE company LIKE '[Demo]%'").run();
-  const sup = db.prepare("INSERT INTO suppliers (id, company, contact, wechat, whatsapp, email, phone, preferred, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, '', ?, '', ?, ?)");
-  for (const x of suppliers) sup.run(x.id, x.company, x.contact, x.wechat || "", x.whatsapp || "", x.email, x.preferred, now, now);
+  const sup = db.prepare("INSERT INTO suppliers (id, company, contact, wechat, whatsapp, email, phone, preferred, notes, currency, terms, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, '', ?, '', ?, ?, ?, ?)");
+  for (const x of suppliers) sup.run(x.id, x.company, x.contact, x.wechat || "", x.whatsapp || "", x.email, x.preferred, x.currency, x.terms, now, now);
   db.prepare("DELETE FROM customers WHERE name LIKE '[Demo]%' AND id NOT IN (SELECT customer_id FROM invoices)").run();
   if (!db.prepare("SELECT 1 FROM customers WHERE name LIKE '[Demo]%'").get()) {
     db.prepare("INSERT INTO customers (id, name, contact, phone, whatsapp, email, address, npwp, notes, created_at, updated_at) VALUES (?, ?, ?, '', ?, ?, ?, ?, '', ?, ?)")

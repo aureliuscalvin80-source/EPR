@@ -53,11 +53,13 @@ test("findBlocks reads side-by-side tables in a workbook tab", () => {
   assert.deepEqual(blocks.map((b) => [b.kind, b.tax, b.qty]), [["stock", "NON", 4], ["sales", "PPN", 7]]);
 });
 
-test("readProductList maps headers and merges duplicate SKUs", () => {
-  const raw = [["Kode", "Nama", "Satuan", "Stok", "Harga"], ["X1", "Bolt", "pcs", "10", "1.500"], ["X1", "Bolt M8", "SET", 4, 2000], ["", "no sku"]];
+test("readProductList maps headers, merges duplicate SKUs, and leaves out missing columns", () => {
+  const raw = [["Kode", "Nama", "Satuan", "Stok", "Harga Jual", "HPP", "MOQ"], ["X1", "Bolt", "pcs", "10", "1.500", "900", ""], ["X1", "Bolt M8", "SET", 4, 2000, 1200, 50], ["", "no sku"]];
   const r = readProductList(raw, "NON");
   assert.equal(r.rows.length, 1);
   assert.equal(r.merged, 1);
   assert.equal(r.skipped, 1);
-  assert.deepEqual(r.rows[0], { sku: "X1", name: "Bolt M8", unit: "SET", qty: 4, price: 2000, tax: "NON", minStock: 0 });
+  assert.deepEqual(r.rows[0], { sku: "X1", name: "Bolt M8", unit: "SET", qty: 4, sellPrice: 2000, cost: 1200, moq: 50, tax: "NON" });
+  const priceOnly = readProductList([["SKU", "Name", "Harga Jual"], ["Y1", "Nut", "500"]], "PPN").rows[0];
+  assert.deepEqual(priceOnly, { sku: "Y1", name: "Nut", unit: "PCS", tax: "PPN", sellPrice: 500 }, "no qty column → qty untouched");
 });

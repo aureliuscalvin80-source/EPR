@@ -1,34 +1,34 @@
 # Sparepart ERP
 
-Spare-part inventory system with separate **PPN** and **Non-PPN** ledgers. It is a standalone rebuild of the *Sparepart Stock Ledger* Claude artifact (the original is kept in `legacy/`), with its own server and database and a softer, white-first design.
+Spare-part ERP for two entities: **CV. Hashiru Motorindo** (PPN) and **CV. Amasan Mega Bersama** (Non-PPN). It is a standalone rebuild of the *Sparepart ERP* Claude artifact (the original stock-ledger artifact is kept in `legacy/`), with its own server and database and a softer, white-first design.
 
-![Inventory](docs/inventory.png)
+![Dashboard](docs/dashboard.png)
 
 ![Receiving a purchase order](docs/purchase-order.png)
 
-![Printed invoice](docs/invoice.png)
+![Posted invoice](docs/invoice.png)
 
 ## Features
 
+Pages are grouped like the artifact: **Dashboard** | Inventory, Alerts | Sales, Purchasing, Receivables, Payables, Contacts | Stock moves, Files, Formulas, Settings, Users.
+
 | Area | What it does |
 |---|---|
-| **Inventory** | Products by SKU and ledger, unit (PCS / SET), qty, price, min stock. Search, filters, sortable columns, paging, stock-value KPIs. |
-| **Stock moves** | Book IN / OUT / ADJ. Stock is updated on the server in one transaction, so two people booking at once can't overwrite each other. OUT below zero is refused. |
-| **Alerts** | Live list driven by alert formulas. Each alert shows **current stock vs reorder point** (or min stock when there is no sales history yet) and how far short it is, plus a gauge and the suggested order. Export to Excel. |
-| **Reorder** | From an alert, add the item to its supplier's **draft purchase order** (one draft per supplier collects everything you need from them). No supplier yet? Assign or add one right there. |
-| **Purchase orders** | Draft → **Sent** → **Partly received** → **Received** (or *Closed short* / *Cancelled*). Edit lines and prices while it's a draft, then send the whole order in one message: WhatsApp opens with the message, email opens your mail app, telephone dials, WeChat copies the message to paste. Book goods in as they arrive (partial deliveries are fine): stock goes up and an IN move is recorded automatically. Stock still to arrive counts as **on order**, so alerts and suggested quantities don't make you order the same thing twice. |
-| **Sales invoices** | Draft → **Issued** → paid (part payments allowed), or **Void**. Issuing gives the invoice its number (`INV/P/2026/0001` for PPN, `INV/N/…` for Non-PPN), freezes the customer details and totals, and **takes the items out of stock**; it refuses if stock is short. Voiding (admin, with a reason) puts the stock back. PPN invoices show DPP Nilai Lain (11/12) and PPN 12%, plus a field for the e-Faktur number (NSFP). Print / save as PDF with your letterhead and the amount in words (terbilang); send a payment reminder by WhatsApp or email. Overdue invoices are flagged. |
-| **Customers** | Name, person in charge, WhatsApp, phone, email, address, NPWP; shows how much each customer still owes. |
-| **Sell price** | Products have a purchase price (from the Persediaan report) and a separate sell price used on invoices. Import files with a `Harga Jual` / `Sell price` column set it. |
-| **Users & roles** | Sign-in required. **Admin**: everything. **Staff**: products, stock moves, suppliers, orders, files; can't delete, or change formulas, settings or users. **Viewer**: read only. Stock moves record who made them. |
-| **Suppliers** | Company name, person in charge, WhatsApp, WeChat ID, email, telephone, preferred channel and notes. Assign a supplier to each product; search inventory by supplier. |
-| **Formulas** | Small expression language (no `eval`) for alert rules and computed columns, with live "would trigger on N items" testing. |
-| **Files & reports** | Upload any file (≤ 15 MB). Hashiru sales reports, stock reports and yearly workbooks are parsed, reconciled to the report totals, and feed demand history. A coverage grid shows which months are loaded. |
+| **Dashboard** (owner) | Stock at cost per entity, goods on the way, receivables with aging buckets, what you owe suppliers, sales and gross margin by month and entity, top SKUs, and **candidates to cut** (in stock, no sales in 6 months, sorted by money tied up). |
+| **Inventory** | Products by SKU and entity, unit (PCS / SET), on hand, **on order**, sell price, price incl. PPN, **average landed cost**, margin, value at cost, min stock, **MOQ** and **order multiple**, supplier. Costs are visible to the owner only. |
+| **Alerts** | Live list driven by alert formulas, comparing **stock on hand + on order** against the reorder point (or min stock without sales history). **Turn alerts into a purchase order**: pick the entity and a supplier (or "any supplier": one draft PO per supplier). Suggested quantities are rounded up to MOQ and order multiple. |
+| **Purchasing** (owner) | `PO/2026/0001`. Draft → **Ordered** → **Part received** → **Received** (or *Closed short* / *Cancelled*). Each PO has a receiving entity, order date, expected arrival, **currency (IDR / CNY / USD) and rate**, freight, import duty and other costs. Receiving books stock in at **landed cost** (price × rate + charges spread by value) and updates the product's **moving-average cost**. Send the order by WhatsApp / email / WeChat / phone, or download it as Excel for the supplier. |
+| **Payables** (owner) | What you owe each supplier per PO, in the PO's currency and in rupiah. Record payments with the rate actually paid. Cancelled or closed orders only owe what arrived. |
+| **Sales** | Invoices per entity, numbered `HM/2026/10/0001` and `AMB/2026/10/0001` (prefixes in Settings). Draft → **Post invoice** (takes stock out; refuses if stock is short) → paid, or **Cancel** (owner, with a reason; stock goes back, the number is not reused). PPN invoices show DPP Nilai Lain (11/12) and PPN 12%, with a field for the e-Faktur number (NSFP). Print / PDF with letterhead and terbilang; send by WhatsApp or email. |
+| **Internal transfers** | Mark a contact as one of your own entities. A posted invoice to it moves the stock into the other entity at the net price (updating its average cost) and stays out of sales, demand and receivables. |
+| **Receivables** (owner) | Open invoices oldest first, overdue days, totals per customer, recent payments; record payments (transfer, cash, giro, offset). |
+| **Contacts** | Customers and suppliers on one page. Suppliers: currency, terms, WhatsApp / WeChat / email / phone, NPWP, address. Customers: terms, NPWP, address, internal flag. |
+| **Users & roles** | Sign-in required. **Admin = owner**: everything, including costs, purchasing, money pages and the dashboard. **Staff**: inventory, alerts, sales invoices, contacts, stock moves, files; no costs. **Viewer**: read only. |
+| **Formulas** | Small expression language (no `eval`) for alert rules and computed columns, with live "would trigger on N items" testing. Variables include `position`, `cost`, `margin_pct`, `moq`, `lot`. |
+| **Files & reports** | Upload any file (≤ 15 MB). Hashiru sales reports, stock reports and yearly workbooks are parsed, reconciled to the report totals, and feed demand history. |
 | **Safety stock** | `Z × σ(monthly sales) × √((lead time + check interval) ÷ 30.4)`, plus reorder point, order-up-to and suggested order. Months blocked by a stock-out are left out. |
-| **Import / export** | Import products from Excel/CSV (Indonesian number formats understood); export inventory or alerts to Excel. |
+| **Import / export / backup** | Import products from Excel/CSV (`Harga Jual` = sell price, `Harga Beli` / `HPP` = cost, `MOQ`; missing columns keep their values). Export stock or alerts. **Full backup to Excel**: products, contacts, invoices, receivables, purchase orders with landed cost, both payment ledgers and all stock moves. |
 | **Live sync** | Every open browser updates when anyone saves (Server-Sent Events). |
-
-New databases start with four formulas: *Below safety stock*, *Reorder now*, *Below min stock* and a *Suggested order* column.
 
 ## Running it
 
@@ -36,7 +36,7 @@ Requires **Node.js 22.5 or newer** (uses the built-in `node:sqlite`, so there is
 
 ```bash
 npm install
-npm run seed:demo    # optional: 8 DEMO- products and 2 [Demo] suppliers to try things out
+npm run seed:demo    # optional: 8 DEMO- products, 2 [Demo] suppliers (IDR and CNY) and a [Demo] customer
 npm start            # http://127.0.0.1:3000
 npm test             # unit + API tests
 ```
@@ -53,7 +53,7 @@ npm test             # unit + API tests
 | `TRUST_PROXY` | off | Set `1` behind a reverse proxy (nginx, Caddy) so login rate-limiting sees real client IPs |
 | `DATA_DIR` | `./data` | SQLite database (`erp.sqlite`) and uploaded files (`uploads/`) |
 
-**Back up `DATA_DIR`.** It holds everything: the database and every uploaded file.
+**Back up `DATA_DIR`.** It holds everything: the database and every uploaded file. The Excel backup under Settings is a readable copy of the records, not a restore file.
 
 ## Moving your data from the artifact
 
@@ -67,11 +67,12 @@ Only the code came over; your products, formulas and reports are still in the ar
 ## Project layout
 
 ```
-server/        Express API + SQLite (app.js routes, db.js schema, reports.js report storage)
+server/        Express API + SQLite (app.js routes, db.js schema, sales.js, purchasing.js, auth.js)
 public/        Browser app, no build step
   js/formula.js  formula parser/evaluator      (pure, tested)
   js/stock.js    demand stats, safety stock    (pure, tested)
   js/reports.js  Hashiru report readers        (pure, tested)
+  js/invoice.js  invoice totals, PPN, terbilang (pure, tested)
   js/app.js      UI
 scripts/       seed-demo.js
 test/          node:test suites
@@ -84,7 +85,8 @@ legacy/        the original single-file artifact
 - **Use HTTPS before opening it to a network.** Over plain HTTP, passwords and cookies cross the network unencrypted. Put it behind Caddy or nginx with a certificate and set `COOKIE_SECURE=1` and `TRUST_PROXY=1`. Localhost-only use (the default) doesn't need this.
 - **SheetJS** is installed from SheetJS's own CDN (0.20.3), because the npm registry only has 0.18.5, which has known advisories. `npm install` therefore needs access to `cdn.sheetjs.com`.
 - **Phone numbers** starting with 0 are assumed Indonesian (+62) for WhatsApp links; enter foreign numbers with + and the country code.
-- **Order prices** are copied from the product price when a line is added and can be edited on the draft. They are not written back to the product.
+- **Order prices** default to the last price paid in that currency (or the average cost for rupiah orders) and can be edited until the goods arrive. The rate, freight and duty can be corrected before receiving; the landed cost is fixed at the moment of receipt.
+- **Average cost** is a moving average of landed cost. Stock that was zero or negative when goods arrive takes the new landed cost as is.
 - **Invoices are not submitted to DJP.** Issue the official e-Faktur in Coretax yourself and paste its number (NSFP) on the invoice. Have your accountant confirm the PPN presentation (DPP Nilai Lain 11/12 × 12%, rounded down to whole rupiah) matches what Coretax produces for your goods.
 - **Sales history:** issued invoices feed the safety-stock model for complete months that have no uploaded Hashiru sales report. Where a month has both, the report is used, so nothing is counted twice.
-- **Not yet built:** supplier invoices and payments, sales returns / credit notes (today: void and re-issue), multiple warehouses, a full audit log of every change, and a printable purchase order.
+- **Not yet built:** sales returns / credit notes (today: cancel and re-post), multiple warehouses, a full audit log of every change, and a printable PDF purchase order (Excel and message only).

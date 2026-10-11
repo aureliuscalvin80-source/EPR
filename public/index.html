@@ -38,141 +38,187 @@
 
 <div class="app">
 
-<aside class="sidebar">
-  <div class="brand">
-    <span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 8l7-3.5L19 8v8l-7 3.5L5 16z"/><path d="M5 8l7 3.5L19 8M12 11.5V19.5"/></svg></span>
-    <div class="brand-t"><strong>Sparepart ERP</strong><span id="ledgerCount">—</span></div>
-  </div>
-  <nav class="nav" role="tablist" aria-label="Sections">
-    <button class="nav-item" role="tab" data-tab="inventory" aria-selected="true"><svg viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg><span>Inventory</span></button>
-    <button class="nav-item" role="tab" data-tab="moves" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M7 20V4M3 8l4-4 4 4M17 4v16M13 16l4 4 4-4"/></svg><span>Stock moves</span></button>
-    <button class="nav-item" role="tab" data-tab="alerts" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span>Alerts</span><span class="count zero" id="alertBadge">0</span></button>
-    <button class="nav-item" role="tab" data-tab="pos" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.6L21 8H6"/><circle cx="10" cy="20" r="1"/><circle cx="17" cy="20" r="1"/></svg><span>Purchase orders</span><span class="count zero" id="poBadge">0</span></button>
-    <button class="nav-item" role="tab" data-tab="invoices" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6M9 13h8M9 17h8M9 9h3"/></svg><span>Sales invoices</span><span class="count zero" id="invBadge">0</span></button>
-    <button class="nav-item" role="tab" data-tab="customers" aria-selected="false"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><span>Customers</span></button>
-    <button class="nav-item" role="tab" data-tab="suppliers" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M3 21V8l6-4v4l6-4v4l6-4v17z"/><path d="M7 17h2M11 17h2M15 17h2"/></svg><span>Suppliers</span></button>
-    <button class="nav-item" role="tab" data-tab="formulas" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M18 7V4H6l6 8-6 8h12v-3"/></svg><span>Formulas</span></button>
-    <button class="nav-item" role="tab" data-tab="files" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg><span>Files &amp; reports</span></button>
-    <button class="nav-item" role="tab" data-tab="settings" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg><span>Import &amp; settings</span></button>
-    <button class="nav-item" role="tab" data-tab="users" aria-selected="false" data-need="admin"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M16 4a4 4 0 0 1 0 8M22 21a7 7 0 0 0-4-6.3"/></svg><span>Users</span></button>
-  </nav>
-  <div class="side-foot">
-    <div class="sync"><span class="dot" id="syncDot"></span><span id="syncStatus">Connecting…</span></div>
-    <div class="me">
-      <span class="avatar sm" id="meAvatar">?</span>
-      <div class="me-t"><strong id="meName">—</strong><span id="meRole"></span></div>
-      <button class="icon-btn" id="pwBtn" title="Change password" aria-label="Change password"><svg viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></button>
-      <button class="icon-btn" id="logoutBtn" title="Sign out" aria-label="Sign out"><svg viewBox="0 0 24 24"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/></svg></button>
+<header class="topbar">
+  <div class="top-in">
+    <div class="top-row">
+      <div class="brand">
+        <span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 8l7-3.5L19 8v8l-7 3.5L5 16z"/><path d="M5 8l7 3.5L19 8M12 11.5V19.5"/></svg></span>
+        <div class="brand-t"><strong>Sparepart ERP</strong><span id="ledgerCount">—</span></div>
+      </div>
+      <div class="top-right">
+        <div class="sync"><span class="dot" id="syncDot"></span><span id="syncStatus">Connecting…</span></div>
+        <div class="me">
+          <span class="avatar sm" id="meAvatar">?</span>
+          <div class="me-t"><strong id="meName">—</strong><span id="meRole"></span></div>
+          <button class="icon-btn" id="pwBtn" title="Change password" aria-label="Change password"><svg viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></button>
+          <button class="icon-btn" id="logoutBtn" title="Sign out" aria-label="Sign out"><svg viewBox="0 0 24 24"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/></svg></button>
+        </div>
+      </div>
     </div>
+    <nav class="nav" role="tablist" aria-label="Sections">
+      <button class="nav-item" role="tab" data-tab="dash" aria-selected="false" data-need="admin">Dashboard</button>
+      <span class="sep" aria-hidden="true" data-need="admin"></span>
+      <button class="nav-item" role="tab" data-tab="inventory" aria-selected="true">Inventory</button>
+      <button class="nav-item" role="tab" data-tab="alerts" aria-selected="false">Alerts<span class="count zero" id="alertBadge">0</span></button>
+      <span class="sep" aria-hidden="true"></span>
+      <button class="nav-item" role="tab" data-tab="sales" aria-selected="false">Sales</button>
+      <button class="nav-item" role="tab" data-tab="po" aria-selected="false" data-need="admin">Purchasing<span class="count zero" id="poBadge">0</span></button>
+      <button class="nav-item" role="tab" data-tab="ar" aria-selected="false" data-need="admin">Receivables<span class="count zero" id="arBadge">0</span></button>
+      <button class="nav-item" role="tab" data-tab="ap" aria-selected="false" data-need="admin">Payables</button>
+      <button class="nav-item" role="tab" data-tab="contacts" aria-selected="false">Contacts</button>
+      <span class="sep" aria-hidden="true"></span>
+      <button class="nav-item" role="tab" data-tab="moves" aria-selected="false">Stock moves</button>
+      <button class="nav-item" role="tab" data-tab="files" aria-selected="false">Files</button>
+      <button class="nav-item" role="tab" data-tab="formulas" aria-selected="false">Formulas</button>
+      <button class="nav-item" role="tab" data-tab="settings" aria-selected="false" data-need="admin">Settings</button>
+      <button class="nav-item" role="tab" data-tab="users" aria-selected="false" data-need="admin">Users</button>
+    </nav>
   </div>
-</aside>
+</header>
 
 <main class="main">
+
+<!-- DASHBOARD (owners) -->
+<section class="page" id="page-dash" hidden data-need="admin">
+  <header class="page-head"><div><h1>Dashboard</h1><p class="sub">Stock, money and sales at a glance.</p></div></header>
+  <div class="kpis" id="dKpis"></div>
+  <div class="grid2">
+    <div class="card"><div class="row"><h2>Receivables aging</h2><span class="spacer"></span><span class="hint" id="dAgingNote"></span></div><div class="aging" id="dAging"></div></div>
+    <div class="card"><h2>Sales and margin</h2><p class="hint">Invoices posted here · excl. PPN · transfers between your own entities left out · margin at each SKU's current average landed cost.</p>
+      <div class="tbl-wrap"><table><thead><tr><th>Month</th><th>Entity</th><th class="num">Net sales</th><th class="num">Gross margin</th><th class="num">Margin</th></tr></thead><tbody id="dSales"></tbody></table></div></div>
+  </div>
+  <div class="grid2">
+    <div class="card"><h2>Top SKUs, last 3 months</h2><div class="tbl-wrap"><table><thead><tr><th>SKU</th><th>Product</th><th class="num">Qty</th><th class="num">Net sales</th><th class="num">Margin</th></tr></thead><tbody id="dTop"></tbody></table></div></div>
+    <div class="card"><div class="row"><h2>Candidates to cut</h2><span class="spacer"></span><span class="hint" id="dCutSum"></span></div><p class="hint">In stock, with no sales in the last 6 months of history. Sorted by money tied up.</p>
+      <div class="tbl-wrap"><table id="dCutTbl"><thead><tr><th>SKU</th><th>Product</th><th>Ledger</th><th class="num">Qty</th><th class="num">Value at cost</th></tr></thead><tbody id="dCut"></tbody></table></div></div>
+  </div>
+</section>
 
 <!-- INVENTORY -->
 <section class="page" id="page-inventory">
   <header class="page-head">
-    <div><h1>Inventory</h1><p class="sub">Stock on hand across the PPN and Non-PPN ledgers.</p></div>
+    <div><h1>Inventory</h1><p class="sub">Stock on hand and on order across both entities.</p></div>
     <button class="btn primary" id="addBtn" data-need="staff"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add product</button>
   </header>
   <div class="kpis" id="kpis"></div>
   <div class="card">
     <div class="toolbar">
-      <label class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="search" placeholder="Search SKU, product or supplier" aria-label="Search"></label>
-      <select id="fTax" aria-label="Ledger"><option value="">All ledgers</option><option value="PPN">PPN only</option><option value="NON">Non-PPN only</option></select>
+      <label class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="search" placeholder="Search SKU, product or supplier" aria-label="Search SKU, product or supplier"></label>
+      <select id="fTax" aria-label="Ledger"><option value="">Both entities</option><option value="PPN">PPN only</option><option value="NON">Non-PPN only</option></select>
       <select id="fUnit" aria-label="Unit"><option value="">All units</option><option value="PCS">PCS</option><option value="SET">SET</option></select>
-      <select id="fAlert" aria-label="Alert filter"><option value="">All items</option><option value="any">With alerts</option><option value="crit">Critical only</option><option value="zero">Out of stock</option></select>
+      <select id="fAlert" aria-label="Alert filter"><option value="">All items</option><option value="any">With alerts</option><option value="crit">Critical only</option><option value="zero">Out of stock</option><option value="onorder">On order</option></select>
     </div>
     <div class="tbl-wrap"><table id="invTbl"><thead></thead><tbody></tbody></table></div>
     <div class="pager" id="pager"></div>
   </div>
 </section>
 
-<!-- MOVES -->
+<!-- ALERTS -->
+<section class="page" id="page-alerts" hidden>
+  <header class="page-head"><div><h1>Alerts</h1><p class="sub">Re-evaluated live. Reorder decisions use stock on hand + on order.</p></div>
+    <button class="btn" id="expAlerts2"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Export to Excel</button></header>
+  <div class="card" data-need="admin">
+    <h2>Turn alerts into a purchase order</h2>
+    <div class="toolbar">
+      <select id="abLedger" aria-label="Entity"><option value="PPN">PPN entity</option><option value="NON">Non-PPN entity</option></select>
+      <select id="abSupplier" aria-label="Supplier"></select>
+      <label class="chk"><input type="checkbox" id="abUnassigned" checked> Include SKUs with no default supplier</label>
+      <button class="btn primary" id="abMake">Create draft PO</button><span class="hint" id="abMsg"></span>
+    </div>
+  </div>
+  <div class="card flush" id="alertList"></div>
+</section>
+
+<!-- SALES -->
+<section class="page" id="page-sales" hidden>
+  <header class="page-head">
+    <div><h1>Sales</h1><p class="sub">Posting an invoice gives it its number and takes the items out of stock.</p></div>
+    <button class="btn primary" id="invNew" data-need="staff"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>New invoice</button>
+  </header>
+  <div class="card">
+    <div class="toolbar">
+      <label class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="sq" type="search" placeholder="Search invoice no., customer or SKU" aria-label="Search invoice no., customer or SKU"></label>
+      <select id="sLedger" aria-label="Entity"><option value="">Both entities</option><option value="PPN">PPN entity</option><option value="NON">Non-PPN entity</option></select>
+      <select id="sRange" aria-label="Period"><option value="31">Last 31 days</option><option value="92">Last 3 months</option><option value="366">Last 12 months</option></select>
+    </div>
+    <div class="tbl-wrap"><table id="sTbl"><thead><tr><th>Date</th><th>Invoice</th><th>Customer</th><th>Entity</th><th class="num">Lines</th><th class="num">DPP</th><th class="num">PPN</th><th class="num">Total</th><th>Status</th></tr></thead><tbody></tbody></table></div>
+    <p class="hint">These are commercial invoices. The Faktur Pajak for PPN sales is still issued in Coretax; add its number (NSFP) on the invoice.</p>
+  </div>
+</section>
+
+<!-- PURCHASING (owners) -->
+<section class="page" id="page-po" hidden data-need="admin">
+  <header class="page-head">
+    <div><h1>Purchasing</h1><p class="sub">Order in the supplier's currency; freight, duty and other costs are spread over the lines to get the landed cost.</p></div>
+    <button class="btn primary" id="poNew"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>New purchase order</button>
+  </header>
+  <div class="kpis" id="poKpis"></div>
+  <div class="card">
+    <div class="toolbar">
+      <label class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="poq" type="search" placeholder="Search PO no., supplier or SKU" aria-label="Search PO no., supplier or SKU"></label>
+      <select id="poStatus" aria-label="Status"><option value="open">Open: draft, ordered, part received</option><option value="all">All purchase orders</option></select>
+    </div>
+    <div class="tbl-wrap"><table id="poTbl"><thead><tr><th>PO</th><th>Supplier</th><th>Entity</th><th>Ordered</th><th>ETA</th><th class="num">Lines</th><th class="num">Goods value</th><th>Received</th><th>Status</th></tr></thead><tbody></tbody></table></div>
+  </div>
+</section>
+
+<!-- RECEIVABLES (owners) -->
+<section class="page" id="page-ar" hidden data-need="admin">
+  <header class="page-head"><div><h1>Receivables</h1><p class="sub">What customers still owe, oldest first.</p></div></header>
+  <div class="kpis" id="arKpis"></div>
+  <div class="toolbar">
+    <label class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="arq" type="search" placeholder="Search customer or invoice" aria-label="Search customer or invoice"></label>
+    <select id="arFilter" aria-label="Filter"><option value="">All open invoices</option><option value="overdue">Overdue only</option><option value="90">More than 90 days overdue</option></select>
+  </div>
+  <div class="grid2">
+    <div class="card"><h2>By customer</h2><div class="tbl-wrap"><table id="arCustTbl"><thead><tr><th>Customer</th><th class="num">Open</th><th class="num">Outstanding</th><th class="num">Overdue</th><th class="num">Oldest</th></tr></thead><tbody id="arCust"></tbody></table></div></div>
+    <div class="card"><h2>Recent payments</h2><div class="tbl-wrap"><table><thead><tr><th>Date</th><th>Invoice</th><th>Customer</th><th class="num">Amount</th><th>Method</th></tr></thead><tbody id="arPays"></tbody></table></div></div>
+  </div>
+  <div class="card"><h2>Open invoices</h2><div class="tbl-wrap"><table id="arTblWrap"><thead><tr><th>Invoice</th><th>Customer</th><th>Date</th><th>Due</th><th class="num">Days overdue</th><th class="num">Total</th><th class="num">Paid</th><th class="num">Outstanding</th><th></th></tr></thead><tbody id="arTbl"></tbody></table></div></div>
+</section>
+
+<!-- PAYABLES (owners) -->
+<section class="page" id="page-ap" hidden data-need="admin">
+  <header class="page-head"><div><h1>Payables</h1><p class="sub">What you owe suppliers per purchase order, in the order's currency.</p></div></header>
+  <div class="kpis" id="apKpis"></div>
+  <div class="toolbar"><label class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="apq" type="search" placeholder="Search supplier or PO" aria-label="Search supplier or PO"></label><label class="chk"><input type="checkbox" id="apOpenOnly" checked> Unpaid only</label></div>
+  <div class="card flush"><div class="tbl-wrap bare"><table><thead><tr><th>PO</th><th>Supplier</th><th>Status</th><th>Currency</th><th class="num">Goods value</th><th class="num">Paid</th><th class="num">Outstanding</th><th class="num">≈ IDR</th><th></th></tr></thead><tbody id="apTbl"></tbody></table></div></div>
+  <div class="card"><h2>Supplier payments</h2><div class="tbl-wrap"><table><thead><tr><th>Date</th><th>PO</th><th>Supplier</th><th class="num">Amount</th><th class="num">Rate</th><th class="num">IDR</th><th>Reference</th><th></th></tr></thead><tbody id="apPays"></tbody></table></div></div>
+</section>
+
+<!-- CONTACTS -->
+<section class="page" id="page-contacts" hidden>
+  <header class="page-head">
+    <div><h1>Contacts</h1><p class="sub">Customers and suppliers. Mark your own entities as internal so transfers stay out of sales.</p></div>
+    <button class="btn primary" id="ctNew" data-need="staff"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>New contact</button>
+  </header>
+  <div class="card">
+    <div class="toolbar">
+      <label class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="cq" type="search" placeholder="Search name, phone or NPWP" aria-label="Search name, phone or NPWP"></label>
+      <select id="cType" aria-label="Type"><option value="">Customers and suppliers</option><option value="customer">Customers</option><option value="supplier">Suppliers</option></select>
+    </div>
+    <div class="tbl-wrap"><table id="cTblWrap"><thead><tr><th>Name</th><th>Type</th><th>Terms</th><th>Phone / WhatsApp</th><th>Address</th><th class="num">Linked</th><th class="num" data-need="admin">Outstanding</th></tr></thead><tbody id="cTbl"></tbody></table></div>
+  </div>
+</section>
+
+<!-- STOCK MOVES -->
 <section class="page" id="page-moves" hidden>
-  <header class="page-head"><div><h1>Stock moves</h1><p class="sub">Book goods received, sold or counted. Feeds <span class="mono">out_30</span> and <span class="mono">avg_daily_out</span>.</p></div></header>
+  <header class="page-head"><div><h1>Stock moves</h1><p class="sub">Sales, purchase receipts and transfers move stock automatically. Use this for counts, damage, samples and corrections.</p></div></header>
   <div class="card" data-need="staff">
     <h2>Record a movement</h2>
     <div class="fgrid">
       <div class="field span2"><label for="mvItem">Product (SKU · ledger)</label><input id="mvItem" list="itemList" placeholder="Type a SKU and pick from the list" autocomplete="off"></div>
-      <div class="field"><label for="mvType">Type</label><select id="mvType"><option value="IN">IN · received</option><option value="OUT">OUT · sold / used</option><option value="ADJ">ADJ · stock count (set to)</option></select></div>
+      <div class="field"><label for="mvType">Type</label><select id="mvType"><option value="ADJ">ADJ · stock count (set to)</option><option value="IN">IN · received</option><option value="OUT">OUT · used / damaged</option></select></div>
       <div class="field"><label for="mvQty">Quantity</label><input id="mvQty" type="number" min="0" step="1" inputmode="numeric"></div>
-      <div class="field span2"><label for="mvNote">Reference / note</label><input id="mvNote" placeholder="e.g. PO-0912, invoice no., customer"></div>
+      <div class="field span2"><label for="mvNote">Reason / reference</label><input id="mvNote" placeholder="e.g. stock opname 12 Oct, damaged in transit"></div>
     </div>
     <div class="row"><button class="btn primary" id="mvSave">Record movement</button><span id="mvMsg" class="hint"></span></div>
     <datalist id="itemList"></datalist>
   </div>
   <div class="card">
-    <h2>Last 30 days</h2>
-    <div class="tbl-wrap"><table id="mvTbl"><thead><tr><th>Time</th><th>SKU</th><th>Ledger</th><th>Type</th><th class="num">Qty Δ</th><th>Note</th><th>By</th></tr></thead><tbody></tbody></table></div>
+    <div class="row"><h2>Last 30 days</h2><span class="spacer"></span><span class="hint">Every change, with who made it</span></div>
+    <div class="tbl-wrap"><table id="mvTbl"><thead><tr><th>Time</th><th>SKU</th><th>Ledger</th><th>Type</th><th class="num">Qty Δ</th><th>Reference</th><th>By</th></tr></thead><tbody></tbody></table></div>
   </div>
-</section>
-
-<!-- ALERTS -->
-<section class="page" id="page-alerts" hidden>
-  <header class="page-head"><div><h1>Alerts</h1><p class="sub">Re-evaluated live whenever stock, prices, reports or formulas change.</p></div>
-    <button class="btn" id="expAlerts2"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Export to Excel</button></header>
-  <div class="card flush" id="alertList"></div>
-</section>
-
-<!-- PURCHASE ORDERS -->
-<section class="page" id="page-pos" hidden>
-  <header class="page-head">
-    <div><h1>Purchase orders</h1><p class="sub">Collect what to buy per supplier, send it in one message, then book the goods in as they arrive.</p></div>
-    <button class="btn primary" id="poNew" data-need="staff"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>New order</button>
-  </header>
-  <div class="seg" role="tablist" aria-label="Order status" id="poSeg">
-    <button data-f="open" aria-selected="true">Open</button><button data-f="draft" aria-selected="false">Drafts</button><button data-f="sent" aria-selected="false">Waiting for goods</button><button data-f="done" aria-selected="false">Finished</button><button data-f="all" aria-selected="false">All</button>
-  </div>
-  <div class="card flush"><div class="tbl-wrap bare"><table id="poTbl"><thead><tr><th>Order</th><th>Supplier</th><th>Status</th><th class="num">Items</th><th class="num">Total</th><th>Received</th><th>Created</th><th>Sent</th></tr></thead><tbody></tbody></table></div></div>
-</section>
-
-<!-- SALES INVOICES -->
-<section class="page" id="page-invoices" hidden>
-  <header class="page-head">
-    <div><h1>Sales invoices</h1><p class="sub">Issuing an invoice gives it its number and takes the items out of stock. Record payments as they come in.</p></div>
-    <button class="btn primary" id="invNew" data-need="staff"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>New invoice</button>
-  </header>
-  <div class="kpis" id="invKpis"></div>
-  <div class="toolbar">
-    <div class="seg" role="tablist" aria-label="Invoice status" id="invSeg">
-      <button data-f="unpaid" aria-selected="true">Unpaid</button><button data-f="overdue" aria-selected="false">Overdue</button><button data-f="draft" aria-selected="false">Drafts</button><button data-f="paid" aria-selected="false">Paid</button><button data-f="void" aria-selected="false">Void</button><button data-f="all" aria-selected="false">All</button>
-    </div>
-    <label class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="invQ" type="search" placeholder="Search number or customer" aria-label="Search invoices"></label>
-  </div>
-  <div class="card flush"><div class="tbl-wrap bare"><table id="invTblList"><thead><tr><th>Invoice</th><th>Date</th><th>Customer</th><th>Ledger</th><th class="num">Total</th><th class="num">Still owed</th><th>Status</th><th>Due</th></tr></thead><tbody></tbody></table></div></div>
-</section>
-
-<!-- CUSTOMERS -->
-<section class="page" id="page-customers" hidden>
-  <header class="page-head">
-    <div><h1>Customers</h1><p class="sub">Who you sell to. NPWP and address are printed on their invoices.</p></div>
-    <button class="btn primary" id="custAdd" data-need="staff"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add customer</button>
-  </header>
-  <div class="toolbar"><label class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="custQ" type="search" placeholder="Search name, contact, NPWP" aria-label="Search customers"></label><span class="hint" id="custSummary"></span></div>
-  <div class="card flush"><div class="tbl-wrap bare"><table id="custTbl"><thead><tr><th>Customer</th><th>Contact</th><th>Phone / WhatsApp</th><th>NPWP</th><th class="num">Invoices</th><th class="num">Still owed</th></tr></thead><tbody></tbody></table></div></div>
-</section>
-
-<!-- USERS -->
-<section class="page" id="page-users" hidden>
-  <header class="page-head">
-    <div><h1>Users</h1><p class="sub"><strong>Admin</strong>: everything. <strong>Staff</strong>: products, stock, suppliers, orders, files — but can't delete, change formulas or settings. <strong>Viewer</strong>: can look, can't change anything.</p></div>
-    <button class="btn primary" id="uAdd"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add user</button>
-  </header>
-  <div class="card flush"><div class="tbl-wrap bare"><table id="uTbl"><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th>Added</th><th></th></tr></thead><tbody></tbody></table></div></div>
-</section>
-
-<!-- SUPPLIERS -->
-<section class="page" id="page-suppliers" hidden>
-  <header class="page-head">
-    <div><h1>Suppliers</h1><p class="sub">Who you buy from and how to reach them. Assign a supplier to each product to reorder in one click from Alerts.</p></div>
-    <button class="btn primary" id="supAdd" data-need="staff"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add supplier</button>
-  </header>
-  <div class="toolbar">
-    <label class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="supQ" type="search" placeholder="Search company, person or contact" aria-label="Search suppliers"></label>
-    <span class="hint" id="supSummary"></span>
-  </div>
-  <div id="supList" class="sup-grid"></div>
 </section>
 
 <!-- FORMULAS -->
@@ -204,8 +250,8 @@
 
 <!-- FILES -->
 <section class="page" id="page-files" hidden>
-  <header class="page-head"><div><h1>Files &amp; reports</h1><p class="sub">Hashiru sales reports (Laporan Penjualan Detail) and stock reports (Persediaan Barang) feed the safety-stock calculation.</p></div></header>
-  <div class="card" data-need="staff">
+  <header class="page-head"><div><h1>Files</h1><p class="sub">Hashiru sales reports (Laporan Penjualan Detail) and stock reports (Persediaan Barang) feed the safety-stock calculation.</p></div></header>
+  <div class="card" data-need="admin">
     <h2>Upload files</h2>
     <p class="hint">Any file type up to 15 MB each. Report type, ledger and month are guessed from the file name — check them before uploading.</p>
     <div class="fgrid">
@@ -214,7 +260,7 @@
       <div class="field"><label for="fNote">Note</label><input id="fNote" placeholder="e.g. supplier invoice Oct"></div>
     </div>
     <div class="tbl-wrap plan" id="fPlanWrap" hidden><table><thead><tr><th>File</th><th>Use as</th><th>Ledger</th><th>Month</th></tr></thead><tbody id="fPlan"></tbody></table></div>
-    <label class="chk"><input type="checkbox" id="fSetStock" checked> Set current stock from the newest stock report (only when it reconciles to the report total)</label>
+    <label class="chk"><input type="checkbox" id="fSetStock" checked> Set current stock and cost from the newest stock report (only when it reconciles to the report total)</label>
     <div class="row"><button class="btn primary" id="fUpload">Upload</button><span id="fMsg" class="hint"></span></div>
   </div>
   <div class="card">
@@ -231,49 +277,61 @@
   </div>
 </section>
 
-<!-- SETTINGS -->
-<section class="page" id="page-settings" hidden>
-  <header class="page-head"><div><h1>Import &amp; settings</h1><p class="sub">Load products in bulk, tune the stock model, export data.</p></div></header>
+<!-- SETTINGS (owners) -->
+<section class="page" id="page-settings" hidden data-need="admin">
+  <header class="page-head"><div><h1>Settings</h1><p class="sub">Your entities, the stock model, imports and backups.</p></div></header>
   <div class="grid2">
-    <div class="card" data-need="staff">
-      <h2>Import products</h2>
-      <p class="hint">Excel or CSV. Recognised headers: <span class="mono">SKU / Kode</span>, <span class="mono">Name / Nama</span>, <span class="mono">Unit / Satuan</span> (PCS or SET), <span class="mono">Qty / Stok</span>, <span class="mono">Price / Harga</span>, <span class="mono">Tax / PPN</span>, <span class="mono">Min</span>. Rows with the same SKU and ledger are updated, not duplicated.</p>
-      <div class="field"><label for="impFile">File</label><input id="impFile" type="file" accept=".xlsx,.xls,.csv"></div>
-      <div class="field"><label for="impTax">Ledger when the file has no Tax column</label><select id="impTax"><option value="NON">Non-PPN</option><option value="PPN">PPN</option></select></div>
-      <div id="impPreview" class="hint"></div>
-      <div class="row"><button class="btn primary" id="impGo" disabled>Import</button></div>
+    <div class="card">
+      <h2>Entities and invoices</h2>
+      <div class="grid2 tight" id="entForm"></div>
+      <div class="fgrid">
+        <div class="field"><label for="stTerms">Default payment terms (days)</label><input id="stTerms" type="number" min="0" max="365" step="1"></div>
+        <div class="field full"><label for="stFooter">Invoice footer</label><textarea id="stFooter" rows="2" placeholder="e.g. Barang yang sudah dibeli tidak dapat dikembalikan"></textarea></div>
+      </div>
+      <div class="row"><button class="btn primary" id="stInvSave">Save entities</button><span id="stInvMsg" class="hint"></span></div>
     </div>
     <div class="card">
-      <h2>Stock model</h2>
+      <h2>Stock planning</h2>
       <div class="fgrid">
         <div class="field"><label for="sPpn">Effective PPN rate (%)</label><input id="sPpn" type="number" step="0.01" min="0"></div>
-        <div class="field"><label for="sPriceMode">Stored prices are</label><select id="sPriceMode"><option value="excl">Excluding PPN (DPP)</option><option value="incl">Including PPN</option></select></div>
+        <div class="field"><label for="sPriceMode">Selling prices are</label><select id="sPriceMode"><option value="excl">Excluding PPN (DPP)</option><option value="incl">Including PPN</option></select></div>
         <div class="field"><label for="sLead">Supplier lead time (days)</label><input id="sLead" type="number" step="1" min="0"></div>
         <div class="field"><label for="sReview">Stock check every (days)</label><input id="sReview" type="number" step="1" min="0"></div>
         <div class="field"><label for="sService">Service level (%)</label><input id="sService" type="number" step="0.5" min="50" max="99.9"></div>
         <div class="field"><label for="sWindow">Demand history used (months)</label><input id="sWindow" type="number" step="1" min="3" max="60"></div>
       </div>
-      <div class="note">Safety stock = Z × σ(monthly sales) × √((lead time + check interval) ÷ 30.4). Reorder point = daily sales × (lead time + check interval) + safety stock. Order up to = daily sales × (lead time + 2 × check interval) + safety stock. Months where stock was zero at both the start and end are left out, because sales were blocked, not low.</div>
-      <div class="row" data-need="admin"><button class="btn primary" id="sSave">Save settings</button><span id="sMsg" class="hint"></span></div>
-      <p class="hint" data-only="nonadmin">Only admins can change these settings.</p>
+      <div class="note">Safety stock = Z × σ(monthly sales) × √((lead time + check interval) ÷ 30.4). Reorder point = daily sales × (lead time + check interval) + safety stock, compared with stock on hand + on order. Order up to = daily sales × (lead time + 2 × check interval) + safety stock, rounded up to the SKU's minimum order and order multiple. Months where stock was zero at both the start and end are left out.</div>
+      <div class="row"><button class="btn primary" id="sSave">Save settings</button><span id="sMsg" class="hint"></span></div>
+    </div>
+  </div>
+  <div class="grid2">
+    <div class="card">
+      <h2>Import products</h2>
+      <p class="hint">Excel or CSV. Recognised headers: <span class="mono">Kode / SKU</span>, <span class="mono">Nama / Name</span>, <span class="mono">Satuan / Unit</span>, <span class="mono">Qty / Stok</span>, <span class="mono">Harga Jual / Sell price</span>, <span class="mono">Harga Beli / HPP / Cost</span>, <span class="mono">PPN / Tax</span>, <span class="mono">Min</span>, <span class="mono">MOQ</span>. Rows with the same SKU and ledger are updated; columns missing from the file keep their current values.</p>
+      <div class="field"><label for="impFile">File</label><input id="impFile" type="file" accept=".xlsx,.xls,.csv"></div>
+      <div class="field"><label for="impTax">Entity when the file has no Tax column</label><select id="impTax"><option value="NON">Non-PPN</option><option value="PPN">PPN</option></select></div>
+      <div id="impPreview" class="hint"></div>
+      <div class="row"><button class="btn primary" id="impGo" disabled>Import</button></div>
     </div>
     <div class="card">
-      <h2>Export</h2>
-      <div class="row"><button class="btn" id="expAll">Export inventory to Excel</button><button class="btn" id="expAlerts">Export alerts to Excel</button></div>
-    </div>
-    <div class="card" data-need="admin">
-      <h2>Invoices</h2>
-      <p class="hint">Printed at the top of each invoice. PPN and Non-PPN invoices can come from different companies.</p>
-      <div class="field" style="max-width:220px"><label for="stTerms">Payment terms (days)</label><input id="stTerms" type="number" min="0" max="365" step="1"></div>
-      <div class="grid2 tight" id="issuerForm"></div>
-      <div class="row"><button class="btn primary" id="stInvSave">Save invoice settings</button><span id="stInvMsg" class="hint"></span></div>
-    </div>
-    <div class="card" data-need="admin">
-      <h2>Example data</h2>
-      <div class="row"><span class="hint grow">Products with SKUs starting <span class="mono">DEMO-</span>, and suppliers and customers named <span class="mono">[Demo]</span>, are examples (their orders and invoices are removed too). Remove them before loading your real stock.</span><button class="btn danger" id="clearDemo">Remove examples</button></div>
+      <h2>Export and backup</h2>
+      <div class="row"><button class="btn" id="expAll"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Stock list</button><button class="btn" id="expAlerts"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Alerts</button><button class="btn primary" id="expBackup"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Full backup to Excel</button></div>
+      <p class="hint">The backup holds products, costs, contacts, invoices, receivables, purchase orders and all payments. Download one every month and keep it outside this app. (The <span class="mono">data</span> folder on the server is the complete copy.)</p>
+      <h2 style="margin-top:8px">Example data</h2>
+      <div class="row"><span class="hint grow">Products with SKUs starting <span class="mono">DEMO-</span>, and suppliers and customers named <span class="mono">[Demo]</span>, are examples (their orders and invoices are removed too).</span><button class="btn danger" id="clearDemo">Remove examples</button></div>
     </div>
   </div>
 </section>
+
+<!-- USERS -->
+<section class="page" id="page-users" hidden>
+  <header class="page-head">
+    <div><h1>Users</h1><p class="sub"><strong>Admin (owner)</strong>: everything, including costs, purchasing, receivables, payables and the dashboard. <strong>Staff</strong>: inventory, alerts, sales, contacts and stock moves; no costs or money pages. <strong>Viewer</strong>: like staff, but can't change anything.</p></div>
+    <button class="btn primary" id="uAdd"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add user</button>
+  </header>
+  <div class="card flush"><div class="tbl-wrap bare"><table id="uTbl"><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th>Added</th><th></th></tr></thead><tbody></tbody></table></div></div>
+</section>
+
 </main>
 </div>
 
@@ -285,11 +343,13 @@
       <div class="field"><label for="iTax">Ledger</label><select id="iTax"><option value="PPN">PPN</option><option value="NON">Non-PPN</option></select></div>
       <div class="field full"><label for="iName">Product name</label><input id="iName" required></div>
       <div class="field"><label for="iUnit">Unit</label><select id="iUnit"><option value="PCS">PCS</option><option value="SET">SET</option></select></div>
-      <div class="field"><label for="iQty">Quantity</label><input id="iQty" type="number" step="1"></div>
-      <div class="field"><label for="iPrice">Purchase price (Rp)</label><input id="iPrice" type="number" step="1" min="0"></div>
-      <div class="field"><label for="iSell">Sell price (Rp, excl. PPN)</label><input id="iSell" type="number" step="1" min="0"></div>
+      <div class="field"><label for="iQty">Quantity on hand</label><input id="iQty" type="number" step="1"></div>
+      <div class="field"><label for="iSell">Selling price (Rp)</label><input id="iSell" type="number" step="1" min="0"></div>
+      <div class="field" data-need="admin"><label for="iCost">Average landed cost (Rp)</label><input id="iCost" type="number" step="1" min="0"></div>
       <div class="field"><label for="iMin">Min stock</label><input id="iMin" type="number" step="1" min="0"></div>
-      <div class="field full"><label for="iSupplier">Supplier</label><select id="iSupplier"></select></div>
+      <div class="field"><label for="iMoq">Minimum order qty</label><input id="iMoq" type="number" step="1" min="0"></div>
+      <div class="field"><label for="iLot">Order multiple</label><input id="iLot" type="number" step="1" min="0"></div>
+      <div class="field full"><label for="iSupplier">Default supplier</label><select id="iSupplier"></select></div>
     </div>
     <div class="hint" id="iPriceHint"></div>
     <div class="note" id="iDemand" hidden></div>
@@ -300,30 +360,31 @@
   </form>
 </dialog>
 
-<dialog id="supDlg">
-  <form class="dlg" id="supForm" method="dialog">
-    <div class="dlg-head"><h2 id="supDlgTitle">Supplier</h2><button type="button" class="icon-btn" id="supClose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+<dialog id="ctDlg">
+  <form class="dlg" id="ctForm" method="dialog">
+    <div class="dlg-head"><h2 id="ctTitle">Contact</h2><button type="button" class="icon-btn" id="ctClose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
     <div class="fgrid">
-      <div class="field full"><label for="sCompany">Company name</label><input id="sCompany" required placeholder="e.g. PT Sumber Jaya Parts"></div>
-      <div class="field full"><label for="sContact">Person in charge</label><input id="sContact" placeholder="e.g. Budi Santoso"></div>
+      <div class="field"><label for="ctType">Type</label><select id="ctType"><option value="customer">Customer</option><option value="supplier">Supplier</option></select></div>
+      <div class="field"><label for="ctTerms">Payment terms (days)</label><input id="ctTerms" type="number" min="0" max="365" step="1" placeholder="default"></div>
+      <div class="field full"><label for="ctName">Name</label><input id="ctName" required></div>
+      <div class="field full"><label for="ctContact">Person in charge</label><input id="ctContact"></div>
+      <div class="field"><label for="ctWhatsapp">WhatsApp</label><input id="ctWhatsapp" type="tel" placeholder="+62 812 …"></div>
+      <div class="field"><label for="ctPhone">Telephone</label><input id="ctPhone" type="tel"></div>
+      <div class="field" data-ct="supplier"><label for="ctWechat">WeChat ID</label><input id="ctWechat"></div>
+      <div class="field"><label for="ctEmail">Email</label><input id="ctEmail" type="email"></div>
+      <div class="field" data-ct="supplier"><label for="ctPreferred">Preferred for orders</label><select id="ctPreferred"><option value="">No preference</option><option value="whatsapp">WhatsApp</option><option value="wechat">WeChat</option><option value="email">Email</option><option value="phone">Telephone</option></select></div>
+      <div class="field" data-ct="supplier"><label for="ctCur">Supplier currency</label><select id="ctCur"><option>CNY</option><option>USD</option><option>IDR</option></select></div>
+      <div class="field"><label for="ctNpwp">NPWP</label><input id="ctNpwp" class="mono" placeholder="15 or 16 digits"></div>
+      <div class="field full"><label for="ctAddr">Address</label><textarea id="ctAddr" rows="2"></textarea></div>
+      <div class="field full"><label for="ctNote">Notes</label><textarea id="ctNote" rows="2"></textarea></div>
     </div>
-    <div class="field-group">
-      <span class="group-l">Ways to communicate <span class="hint">· at least one</span></span>
-      <div class="fgrid">
-        <div class="field"><label for="sWhatsapp">WhatsApp</label><input id="sWhatsapp" type="tel" placeholder="+62 812 3456 7890"></div>
-        <div class="field"><label for="sWechat">WeChat ID</label><input id="sWechat" placeholder="WeChat ID"></div>
-        <div class="field"><label for="sEmail">Email</label><input id="sEmail" type="email" placeholder="sales@example.com"></div>
-        <div class="field"><label for="sPhone">Telephone</label><input id="sPhone" type="tel" placeholder="+62 21 555 0123"></div>
-      </div>
-      <p class="hint">Numbers starting with 0 are treated as Indonesian (+62). For other countries, start with + and the country code.</p>
-    </div>
-    <div class="fgrid">
-      <div class="field"><label for="sPreferred">Preferred for orders</label><select id="sPreferred"><option value="">No preference</option><option value="whatsapp">WhatsApp</option><option value="wechat">WeChat</option><option value="email">Email</option><option value="phone">Telephone</option></select></div>
-      <div class="field full"><label for="sNotes">Notes</label><textarea id="sNotes" rows="2" placeholder="Payment terms, lead time, bank details…"></textarea></div>
-    </div>
-    <div class="err" id="supErr"></div>
-    <div class="confirm" id="supDelRow" hidden><span id="supDelText">Delete this supplier?</span><button type="button" class="btn danger small" id="supDelYes">Delete</button><button type="button" class="btn small" id="supDelNo">Keep</button></div>
-    <div class="row dlg-foot"><button type="button" class="btn ghost-danger" id="supDel" data-need="admin">Delete</button><span class="spacer"></span><button type="button" class="btn" id="supCancel">Cancel</button><button type="submit" class="btn primary" id="supSave">Save</button></div>
+    <p class="hint">Phone numbers starting with 0 are treated as Indonesian (+62) for WhatsApp. For other countries, start with + and the country code.</p>
+    <label class="chk" data-ct="customer"><input type="checkbox" id="ctInternal"> This customer is one of our own entities (transfers are left out of demand and receivables)</label>
+    <div class="field" id="ctLedgerWrap" hidden><label for="ctLedger">Which ledger is this entity?</label><select id="ctLedger"><option value="PPN">PPN ledger</option><option value="NON">Non-PPN ledger</option></select></div>
+    <div class="hint" id="ctHist"></div>
+    <div class="err" id="ctErr" role="alert"></div>
+    <div class="confirm" id="ctDelRow" hidden><span id="ctDelText">Delete this contact?</span><button type="button" class="btn danger small" id="ctDelYes">Delete</button><button type="button" class="btn small" id="ctDelNo">Keep</button></div>
+    <div class="row dlg-foot"><button type="button" class="btn ghost-danger" id="ctDel" data-need="admin">Delete</button><span class="spacer"></span><button type="button" class="btn" id="ctCancel">Cancel</button><button type="submit" class="btn primary" id="ctSave" data-need="staff">Save</button></div>
   </form>
 </dialog>
 
@@ -344,10 +405,25 @@
 <dialog id="poDlg" class="wide">
   <div class="dlg">
     <div class="dlg-head"><div><h2 id="poTitle">Purchase order</h2><div class="hint" id="poMeta"></div></div><button type="button" class="icon-btn" id="poClose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+    <div class="fgrid" id="poHead">
+      <div class="field span2"><label for="pSupp">Supplier</label><select id="pSupp"></select></div>
+      <div class="field"><label for="pLedger">Receiving entity</label><select id="pLedger"><option value="PPN">PPN entity</option><option value="NON">Non-PPN entity</option></select></div>
+      <div class="field"><label for="pDate">Order date</label><input id="pDate" type="date"></div>
+      <div class="field"><label for="pEta">Expected arrival</label><input id="pEta" type="date"></div>
+      <div class="field"><label for="pCur">Currency</label><select id="pCur"><option>CNY</option><option>USD</option><option>IDR</option></select></div>
+      <div class="field" id="pFxWrap"><label for="pFx">Rate (Rp per unit)</label><input id="pFx" type="number" min="0" step="0.01"></div>
+      <div class="field"><label for="pFreight">Freight (Rp)</label><input id="pFreight" type="number" min="0" step="1"></div>
+      <div class="field"><label for="pDuty">Import duty (Rp)</label><input id="pDuty" type="number" min="0" step="1"></div>
+      <div class="field"><label for="pOther">Other costs (Rp)</label><input id="pOther" type="number" min="0" step="1"></div>
+    </div>
+    <p class="hint">Enter duty without creditable import PPN. Freight, duty and other costs are spread over the lines by value to get the landed cost per unit.</p>
     <div id="poSupplier"></div>
-    <div class="tbl-wrap"><table id="poLines"><thead></thead><tbody></tbody><tfoot></tfoot></table></div>
-    <div class="row" id="poAddRow"><input id="poAddItem" list="itemList" placeholder="Add a product: type a SKU" autocomplete="off" style="flex:1 1 240px"><input id="poAddQty" type="number" min="1" step="1" placeholder="Qty" style="width:100px"><button type="button" class="btn" id="poAddBtn">Add line</button></div>
-    <div class="field" id="poNoteWrap"><label for="poNote">Note for the supplier</label><textarea id="poNote" rows="2" placeholder="e.g. delivery address, payment terms"></textarea></div>
+    <div class="tbl-wrap"><table id="poLines"><thead></thead><tbody></tbody></table></div>
+    <div class="row" id="poAddRow"><input id="poAddItem" list="poItemList" placeholder="Add a product: type a SKU" autocomplete="off" style="flex:1 1 240px"><input id="poAddQty" type="number" min="1" step="1" placeholder="Qty" style="width:100px"><button type="button" class="btn" id="poAddBtn">Add line</button><datalist id="poItemList"></datalist></div>
+    <div class="inv-bottom">
+      <div class="inv-left"><div class="field" id="poNoteWrap"><label for="poNote">Note for the supplier</label><textarea id="poNote" rows="2" placeholder="e.g. delivery address, payment terms"></textarea></div></div>
+      <div class="totals" id="poTotals"></div>
+    </div>
     <div class="err" id="poErr" role="alert"></div>
     <div id="poSend" class="send-box" hidden>
       <div class="field"><label for="poMsg">Message</label><textarea id="poMsg" rows="9"></textarea></div>
@@ -358,18 +434,10 @@
   </div>
 </dialog>
 
-<dialog id="poNewDlg">
-  <div class="dlg">
-    <div class="dlg-head"><h2>New purchase order</h2></div>
-    <div class="field"><label for="poNewPick">Supplier</label><select id="poNewPick"></select></div>
-    <div class="row dlg-foot"><span class="spacer"></span><button type="button" class="btn" id="poNewCancel">Cancel</button><button type="button" class="btn primary" id="poNewGo">Create draft</button></div>
-  </div>
-</dialog>
-
 <dialog id="invNewDlg">
   <div class="dlg">
     <div class="dlg-head"><h2>New invoice</h2></div>
-    <div class="field"><label for="invNewTax">Ledger</label><select id="invNewTax"><option value="PPN">PPN</option><option value="NON">Non-PPN</option></select></div>
+    <div class="field"><label for="invNewTax">Entity</label><select id="invNewTax"><option value="PPN">PPN entity</option><option value="NON">Non-PPN entity</option></select></div>
     <div class="field"><label for="invNewCust">Customer</label><select id="invNewCust"></select></div>
     <p class="hint">Not in the list? <button type="button" class="linklike" id="invNewCustAdd">Add a customer</button></p>
     <div class="row dlg-foot"><span class="spacer"></span><button type="button" class="btn" id="invNewCancel">Cancel</button><button type="button" class="btn primary" id="invNewGo">Create draft</button></div>
@@ -400,21 +468,19 @@
   </div>
 </dialog>
 
-<dialog id="custDlg">
-  <form class="dlg" id="custForm" method="dialog">
-    <div class="dlg-head"><h2 id="custTitle">Customer</h2><button type="button" class="icon-btn" id="custClose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+<dialog id="payDlg">
+  <form class="dlg" id="payForm" method="dialog">
+    <div class="dlg-head"><h2 id="payTitle">Record payment</h2><button type="button" class="icon-btn" id="payClose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+    <div class="kv" id="payInfo"></div>
     <div class="fgrid">
-      <div class="field full"><label for="cName">Customer / company name</label><input id="cName" required></div>
-      <div class="field full"><label for="cContact">Person in charge</label><input id="cContact"></div>
-      <div class="field"><label for="cWhatsapp">WhatsApp</label><input id="cWhatsapp" type="tel" placeholder="+62 812 …"></div>
-      <div class="field"><label for="cPhone">Telephone</label><input id="cPhone" type="tel"></div>
-      <div class="field full"><label for="cEmail">Email</label><input id="cEmail" type="email"></div>
-      <div class="field full"><label for="cAddress">Address (printed on invoices)</label><textarea id="cAddress" rows="2"></textarea></div>
-      <div class="field"><label for="cNpwp">NPWP</label><input id="cNpwp" class="mono" placeholder="15 or 16 digits"></div>
-      <div class="field full"><label for="cNotes">Notes</label><textarea id="cNotes" rows="2"></textarea></div>
+      <div class="field"><label for="pdDate">Date</label><input id="pdDate" type="date" required></div>
+      <div class="field"><label for="pdAmt" id="pdAmtL">Amount</label><input id="pdAmt" type="number" min="0" step="0.01" required></div>
+      <div class="field" id="pdFxWrap"><label for="pdFx">Rate paid (Rp per unit)</label><input id="pdFx" type="number" min="0" step="0.01"></div>
+      <div class="field"><label for="pdMethod">Method</label><select id="pdMethod"><option value="transfer">Transfer</option><option value="cash">Cash</option><option value="giro">Giro / cheque</option><option value="offset">Offset</option><option value="other">Other</option></select></div>
+      <div class="field full"><label for="pdNote">Reference</label><input id="pdNote" placeholder="bank reference, giro no."></div>
     </div>
-    <div class="err" id="custErr" role="alert"></div>
-    <div class="row dlg-foot"><button type="button" class="btn ghost-danger" id="custDel" data-need="admin">Delete</button><span class="spacer"></span><button type="button" class="btn" id="custCancel">Cancel</button><button type="submit" class="btn primary" id="custSave" data-need="staff">Save</button></div>
+    <div class="err" id="pdErr" role="alert"></div>
+    <div class="row dlg-foot"><span class="spacer"></span><button type="button" class="btn" id="pdCancel">Cancel</button><button type="submit" class="btn primary" id="pdSave">Save payment</button></div>
   </form>
 </dialog>
 

@@ -95,10 +95,11 @@ const HMAP = {
   name: ["name", "nama", "nama barang", "product", "product name", "description", "deskripsi"],
   unit: ["unit", "satuan", "uom"],
   qty: ["qty", "quantity", "stok", "stock", "jumlah", "kuantitas"],
-  price: ["price", "harga", "harga beli", "unit price", "cost"],
-  sellPrice: ["sell price", "selling price", "harga jual"],
+  price: ["price", "harga", "harga jual", "unit price", "sell price", "selling price"],
+  cost: ["harga beli", "hpp", "cost", "modal", "harga pokok"],
   tax: ["tax", "ppn", "pajak", "ledger"],
   minStock: ["min", "min stock", "minimum", "stok minimum"],
+  moq: ["moq", "min order", "minimum order"],
 };
 export function mapHeader(h) {
   h = String(h || "").trim().toLowerCase();
@@ -131,7 +132,7 @@ function genericLines(rows) {
       qty: num(r[ix("qty")]),
       unitRaw: ix("unit") >= 0 ? r[ix("unit")] : "",
       total: totI >= 0 ? num(r[totI]) : 0,
-      price: ix("price") >= 0 ? num(r[ix("price")]) : 0,
+      price: ix("price") >= 0 ? num(r[ix("price")]) : ix("cost") >= 0 ? num(r[ix("cost")]) : 0,
     });
   }
   return out;
@@ -315,8 +316,13 @@ export function readProductList(raw, defTax) {
       tax = /NON|TIDAK|NO|^0$|^N$/.test(t) ? "NON" : /PPN|YA|YES|^1$|^Y$/.test(t) ? "PPN" : defTax;
     }
     const u = String(o.unit ?? "").trim().toUpperCase();
-    const row = { sku, name: String(o.name ?? "").trim(), unit: /SET|STEL|SETEL/.test(u) ? "SET" : "PCS", qty: toNum(o.qty), price: toNum(o.price), tax, minStock: toNum(o.minStock) };
-    if (map.includes("sellPrice")) row.sellPrice = toNum(o.sellPrice);
+    // Columns missing from the file are left out, so the import keeps the product's current value.
+    const row = { sku, name: String(o.name ?? "").trim(), unit: /SET|STEL|SETEL/.test(u) ? "SET" : "PCS", tax };
+    if (map.includes("qty")) row.qty = toNum(o.qty);
+    if (map.includes("price")) row.sellPrice = toNum(o.price);
+    if (map.includes("cost")) row.cost = toNum(o.cost);
+    if (map.includes("minStock")) row.minStock = toNum(o.minStock);
+    if (map.includes("moq")) row.moq = toNum(o.moq);
     rows.push(row);
   }
   const dedup = new Map(rows.map((r) => [r.tax + "~" + r.sku, r]));

@@ -53,10 +53,11 @@ test("items: create, reject duplicates, edit records an ADJ move", async () => {
 
 test("moves: IN/OUT/ADJ update stock and OUT cannot go negative", async () => {
   await call("POST", "/api/items", { sku: "M1", tax: "NON", name: "Move me", qty: 2 });
-  assert.equal((await call("POST", "/api/moves", { key: "NON~M1", type: "IN", qty: 5 })).body.to, 7);
-  assert.equal((await call("POST", "/api/moves", { key: "NON~M1", type: "OUT", qty: 3 })).body.to, 4);
-  assert.equal((await call("POST", "/api/moves", { key: "NON~M1", type: "OUT", qty: 9 })).status, 409);
-  assert.equal((await call("POST", "/api/moves", { key: "NON~M1", type: "ADJ", qty: 1 })).body.to, 1);
+  assert.equal((await call("POST", "/api/moves", { key: "NON~M1", type: "IN", qty: 5 })).status, 400, "a reason is required");
+  assert.equal((await call("POST", "/api/moves", { key: "NON~M1", type: "IN", qty: 5, note: "found" })).body.to, 7);
+  assert.equal((await call("POST", "/api/moves", { key: "NON~M1", type: "OUT", qty: 3, note: "damaged" })).body.to, 4);
+  assert.equal((await call("POST", "/api/moves", { key: "NON~M1", type: "OUT", qty: 9, note: "x" })).status, 409);
+  assert.equal((await call("POST", "/api/moves", { key: "NON~M1", type: "ADJ", qty: 1, note: "stock count" })).body.to, 1);
 });
 
 test("rules: invalid formulas are refused", async () => {
@@ -91,9 +92,10 @@ test("files and reports: upload, store demand, set stock, delete", async () => {
 });
 
 test("suppliers: validation, assignment, delete unassigns products", async () => {
-  let r = await call("POST", "/api/suppliers", { company: "PT Jaya", contact: "Budi" });
-  assert.equal(r.status, 400);
-  assert.match(r.body.error, /at least one way/);
+  let r = await call("POST", "/api/suppliers", { contact: "Budi" });
+  assert.equal(r.status, 400, "name required");
+  r = await call("POST", "/api/suppliers", { company: "PT Jaya", currency: "EUR" });
+  assert.equal(r.status, 400, "unknown currency");
   r = await call("POST", "/api/suppliers", { company: "PT Jaya", email: "not-an-email" });
   assert.equal(r.status, 400);
   r = await call("POST", "/api/suppliers", { company: "PT Jaya", whatsapp: "0812 555", preferred: "email" });
@@ -111,9 +113,16 @@ test("suppliers: validation, assignment, delete unassigns products", async () =>
   assert.equal(st.items["NON~S2"].supplierId, sid);
   assert.equal(st.suppliers[0].company, "PT Jaya");
 
-  // Editing a product keeps the supplier it is given; importing products leaves suppliers alone.
+  // Importing products leaves suppliers alone, and only changes the columns the file has.
   await call("POST", "/api/items/import", { rows: [{ sku: "S1", tax: "NON", name: "Supplied v2", qty: 3 }] });
-  assert.equal((await call("GET", "/api/state")).body.items["NON~S1"].supplierId, sid);
+  let it = (await call("GET", "/api/state")).body.items["NON~S1"];
+  assert.equal(it.supplierId, sid);
+  assert.equal(it.qty, 3);
+  await call("POST", "/api/items/import", { rows: [{ sku: "S1", tax: "NON", sellPrice: 777 }] });
+  it = (await call("GET", "/api/state")).body.items["NON~S1"];
+  assert.equal(it.qty, 3, "qty kept when the file has no qty column");
+  assert.equal(it.sellPrice, 777);
+  assert.equal(it.name, "Supplied v2");
 
   r = await call("DELETE", "/api/suppliers/" + sid);
   assert.equal(r.body.unassigned, 2);
@@ -122,57 +131,90 @@ test("suppliers: validation, assignment, delete unassigns products", async () =>
   assert.equal(st.suppliers.length, 0);
 });
 
-test("purchase orders: draft, merge, send, partial receipt, close", async () => {
-  const sid = (await call("POST", "/api/suppliers", { company: "PO Supplier", whatsapp: "0812 1111 2222" })).body.id;
-  await call("POST", "/api/items", { sku: "P1", tax: "PPN", name: "Pump", qty: 2, price: 1000, supplierId: sid });
-  await call("POST", "/api/items", { sku: "P2", tax: "NON", name: "Pipe", qty: 0, price: 50, supplierId: sid });
+test("purchase orders: draft, merge, currency, landed cost, partial receipt, payables, close", async () => {
+  const sid = (await call("POST", "/api/suppliers", { company: "Guangzhou Parts", wechat: "gz", currency: "CNY" })).body.id;
+  await call("POST", "/api/items", { sku: "P1", tax: "PPN", name: "Pump", qty: 2, cost: 100000, supplierId: sid });
+  await call("POST", "/api/items", { sku: "P2", tax: "PPN", name: "Pipe", qty: 0, supplierId: sid });
   await call("POST", "/api/items", { sku: "P3", tax: "NON", name: "No supplier", qty: 0 });
 
   assert.equal((await call("POST", "/api/pos/add-line", { itemKey: "NON~P3", qty: 1 })).status, 400, "needs a supplier");
   const a = (await call("POST", "/api/pos/add-line", { itemKey: "PPN~P1", qty: 5 })).body;
   assert.equal(a.created, true);
-  assert.match(a.number, /^PO-\d{4}-0001$/);
+  assert.match(a.number, /^PO\/\d{4}\/0001$/);
   const b = (await call("POST", "/api/pos/add-line", { itemKey: "PPN~P1", qty: 3 })).body;
   assert.equal(b.id, a.id, "goes into the same draft");
   assert.equal(b.merged, true);
-  await call("POST", "/api/pos/add-line", { itemKey: "NON~P2", qty: 10 });
+  await call("POST", "/api/pos/add-line", { itemKey: "PPN~P2", qty: 10 });
   let po = (await call("GET", "/api/state")).body.pos.find((p) => p.id === a.id);
-  assert.deepEqual(po.lines.map((l) => [l.sku, l.qty, l.price]), [["P1", 8, 1000], ["P2", 10, 50]]);
+  assert.equal(po.currency, "CNY", "takes the supplier's currency");
+  assert.equal(po.ledger, "PPN");
+  assert.deepEqual(po.lines.map((l) => [l.sku, l.qty]), [["P1", 8], ["P2", 10]]);
 
-  // edit the draft, then it can't be received before it is sent
-  const lines = po.lines.map((l) => ({ itemKey: l.itemKey, qty: l.sku === "P1" ? 6 : l.qty, price: l.price }));
-  assert.equal((await call("PUT", `/api/pos/${a.id}`, { lines, note: "Urgent" })).status, 200);
-  assert.equal((await call("POST", `/api/pos/${a.id}/receive`, { lines: [] })).status, 409);
-  assert.equal((await call("POST", `/api/pos/${a.id}/send`, { via: "whatsapp" })).status, 200);
-  assert.equal((await call("PUT", `/api/pos/${a.id}`, { lines })).status, 409, "sent orders are locked");
+  // Draft: prices in CNY, freight and duty in Rp. Ordering needs a rate.
+  const lines = [{ itemKey: "PPN~P1", qty: 6, price: 50 }, { itemKey: "PPN~P2", qty: 10, price: 10 }];
+  assert.equal((await call("PUT", `/api/pos/${a.id}`, { lines, note: "Urgent", fx: 0, freight: 80000, duty: 20000 })).status, 200);
+  assert.equal((await call("POST", `/api/pos/${a.id}/send`, { via: "wechat" })).status, 400, "rate required");
+  await call("PUT", `/api/pos/${a.id}`, { lines, fx: 2200, freight: 80000, duty: 20000 });
+  assert.equal((await call("POST", `/api/pos/${a.id}/receive`, { lines: [] })).status, 409, "not ordered yet");
+  assert.equal((await call("POST", `/api/pos/${a.id}/send`, { via: "wechat" })).status, 200);
   assert.equal((await call("DELETE", `/api/suppliers/${sid}`)).status, 409, "supplier with orders can't be deleted");
 
-  po = (await call("GET", "/api/state")).body.pos.find((p) => p.id === a.id);
-  assert.equal(po.status, "sent");
-  assert.equal(po.sentVia, "whatsapp");
-  assert.equal(po.note, "Urgent");
+  let st = (await call("GET", "/api/state")).body;
+  assert.equal(st.items["PPN~P1"].onOrder, 6, "on order comes from the server");
+  po = st.pos.find((p) => p.id === a.id);
   const l1 = po.lines.find((l) => l.sku === "P1"), l2 = po.lines.find((l) => l.sku === "P2");
 
+  // Goods = 6×50 + 10×10 = 400 CNY. Charges Rp 100.000 spread by value: P1 gets 100000×50/400 = 12.500 per unit.
+  // Landed P1 = 50×2200 + 12.500 = 122.500. Average with 2 in stock at 100.000: (2×100000 + 4×122500) / 6 = 115.000.
   let r = await call("POST", `/api/pos/${a.id}/receive`, { lines: [{ id: l1.id, qty: 7 }] });
   assert.equal(r.status, 400, "can't receive more than ordered");
-  r = await call("POST", `/api/pos/${a.id}/receive`, { lines: [{ id: l1.id, qty: 6 }, { id: l2.id, qty: 4 }] });
-  assert.deepEqual(r.body, { status: "partial", booked: 2 });
-  let st = (await call("GET", "/api/state")).body;
-  assert.equal(st.items["PPN~P1"].qty, 8);
-  assert.equal(st.items["NON~P2"].qty, 4);
-  const mv = st.moves.find((m) => m.sku === "P2");
-  assert.equal(mv.type, "IN");
-  assert.match(mv.note, /Received PO-/);
+  r = await call("POST", `/api/pos/${a.id}/receive`, { lines: [{ id: l1.id, qty: 4 }] });
+  assert.deepEqual(r.body, { status: "partial", booked: 1 });
+  st = (await call("GET", "/api/state")).body;
+  assert.equal(st.items["PPN~P1"].qty, 6);
+  assert.equal(Math.round(st.items["PPN~P1"].cost), 115000);
+  assert.equal(st.items["PPN~P1"].onOrder, 2);
+  assert.equal(st.moves.find((m) => m.sku === "P1" && m.type === "PO").note, po.number);
 
-  // a new add-line now opens a fresh draft, since the first order was sent
-  const c = (await call("POST", "/api/pos/add-line", { itemKey: "NON~P2", qty: 1 })).body;
-  assert.notEqual(c.id, a.id);
-  assert.match(c.number, /-0002$/);
-  assert.equal((await call("DELETE", `/api/pos/${c.id}`)).status, 200);
+  // Payables: 400 CNY ordered.
+  assert.equal((await call("POST", `/api/pos/${a.id}/payments`, { amount: 500, fx: 2210 })).status, 400, "can't overpay");
+  assert.equal((await call("POST", `/api/pos/${a.id}/payments`, { amount: 300 })).status, 400, "rate required for CNY");
+  assert.equal((await call("POST", `/api/pos/${a.id}/payments`, { amount: 300, fx: 2210, note: "TT" })).status, 200);
+  st = (await call("GET", "/api/state")).body;
+  assert.equal(st.supplierPays[0].idr, 663000);
+
+  // From alerts: a fresh draft with the given lines
+  const fa = (await call("POST", "/api/pos/from-alerts", { ledger: "PPN", supplierId: sid, lines: [{ itemKey: "PPN~P2", qty: 4 }] })).body;
+  assert.notEqual(fa.id, a.id);
+  assert.match(fa.number, /\/0002$/);
+  assert.equal((await call("POST", "/api/pos/from-alerts", { ledger: "PPN", supplierId: sid, lines: [{ itemKey: "NON~P3", qty: 1 }] })).status, 400, "wrong entity");
+  assert.equal((await call("DELETE", `/api/pos/${fa.id}`)).status, 200);
 
   r = await call("POST", `/api/pos/${a.id}/close`);
   assert.equal(r.body.status, "closed");
+  st = (await call("GET", "/api/state")).body;
+  assert.equal(st.items["PPN~P1"].onOrder, 0, "closed orders no longer count as on order");
   assert.equal((await call("POST", `/api/pos/${a.id}/receive`, { lines: [{ id: l2.id, qty: 1 }] })).status, 409);
+});
+
+test("internal transfer: a sale to our own other entity moves stock between ledgers and stays out of demand", async () => {
+  const own = (await call("POST", "/api/customers", { name: "CV Amasan (own)", internal: true, ledger: "NON" })).body.id;
+  await call("POST", "/api/items", { sku: "T1", tax: "PPN", name: "Transferred part", qty: 5, cost: 1000 });
+  const inv = (await call("POST", "/api/invoices", { tax: "PPN", customerId: own })).body.id;
+  await call("PUT", `/api/invoices/${inv}`, { lines: [{ itemKey: "PPN~T1", qty: 2, price: 1500 }] });
+  const r = await call("POST", `/api/invoices/${inv}/issue`);
+  assert.equal(r.body.internal, true);
+  assert.equal(r.body.transferTo, "NON");
+  let st = (await call("GET", "/api/state")).body;
+  assert.equal(st.items["PPN~T1"].qty, 3);
+  assert.equal(st.items["NON~T1"].qty, 2, "created in the receiving ledger");
+  assert.equal(st.items["NON~T1"].cost, 1500, "at the transfer price");
+  assert.deepEqual(st.moves.filter((m) => m.sku === "T1").map((m) => m.type).sort(), ["ADJ", "TRF-IN", "TRF-OUT"]);
+  assert.equal(st.invoices.find((i) => i.id === inv).internal, true);
+  assert.equal((await call("POST", `/api/invoices/${inv}/void`, { reason: "mistake" })).status, 200);
+  st = (await call("GET", "/api/state")).body;
+  assert.equal(st.items["PPN~T1"].qty, 5);
+  assert.equal(st.items["NON~T1"].qty, 0);
 });
 
 test("invoices: draft, ledger check, stock check, issue, numbering, payments, void", async () => {
@@ -192,13 +234,15 @@ test("invoices: draft, ledger check, stock check, issue, numbering, payments, vo
   await call("PUT", `/api/invoices/${inv}`, { lines: [{ itemKey: "PPN~I1", qty: 4, price: 250000, discPct: 0 }], note: "Thanks" });
   r = await call("POST", `/api/invoices/${inv}/issue`);
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.match(r.body.number, /^INV\/P\/\d{4}\/0001$/);
+  assert.match(r.body.number, /^HM\/\d{4}\/\d{2}\/\d{4}$/);
+  const firstSeq = Number(r.body.number.slice(-4));
   assert.equal(r.body.total, 1109999);
 
   let st = (await call("GET", "/api/state")).body;
   assert.equal(st.items["PPN~I1"].qty, 6, "stock went down");
-  const mv = st.moves.find((m) => m.sku === "I1" && m.type === "OUT");
-  assert.match(mv.note, /Invoice INV\/P\//);
+  const mv = st.moves.find((m) => m.sku === "I1" && m.type === "SALE");
+  assert.equal(mv.type, "SALE");
+  assert.match(mv.note, /^HM\//);
   let i = st.invoices.find((x) => x.id === inv);
   assert.equal(i.status, "issued");
   assert.equal(i.custName, "PT Pelanggan");
@@ -228,23 +272,40 @@ test("invoices: draft, ledger check, stock check, issue, numbering, payments, vo
   // next PPN invoice continues the numbering; Non-PPN has its own
   const inv2 = (await call("POST", "/api/invoices", { tax: "PPN", customerId: cid })).body.id;
   await call("PUT", `/api/invoices/${inv2}`, { lines: [{ itemKey: "PPN~I1", qty: 1, price: 1000 }] });
-  assert.match((await call("POST", `/api/invoices/${inv2}/issue`)).body.number, /\/0002$/);
+  assert.equal(Number((await call("POST", `/api/invoices/${inv2}/issue`)).body.number.slice(-4)), firstSeq + 1, "numbering continues");
   const inv3 = (await call("POST", "/api/invoices", { tax: "NON", customerId: cid })).body.id;
   await call("PUT", `/api/invoices/${inv3}`, { lines: [{ itemKey: "NON~N1", qty: 1, price: 80 }] });
   r = await call("POST", `/api/invoices/${inv3}/issue`);
-  assert.match(r.body.number, /^INV\/N\/\d{4}\/0001$/);
+  assert.match(r.body.number, /^AMB\/\d{4}\/\d{2}\/0001$/);
   assert.equal(r.body.total, 80, "no PPN on Non-PPN");
   assert.equal((await call("DELETE", `/api/invoices/${inv3}`)).status, 409, "issued invoices can't be deleted");
   assert.equal((await call("DELETE", `/api/customers/${cid}`)).status, 409, "customer with invoices can't be deleted");
 });
 
-test("settings: saving the stock model keeps the invoice letterhead", async () => {
-  await call("PUT", "/api/settings/invoicing", { invoiceTerms: 14, issuer: { PPN: { name: "CV Hashiru", npwp: "0123" }, NON: { name: "Amasan" } } });
+test("settings: entities, prefixes, and saving the stock model keeps them", async () => {
+  let s = (await call("GET", "/api/state")).body.settings;
+  assert.deepEqual([s.ent.PPN.name, s.ent.PPN.prefix, s.ent.NON.prefix], ["CV. Hashiru Motorindo", "HM", "AMB"]);
+  assert.equal((await call("PUT", "/api/settings/invoicing", { invoiceTerms: 14, ent: { PPN: { name: "A", prefix: "X" }, NON: { name: "B", prefix: "x" } } })).status, 400, "prefixes must differ");
+  await call("PUT", "/api/settings/invoicing", { invoiceTerms: 14, footer: "Thank you", ent: { PPN: { name: "CV Hashiru", prefix: "hm", npwp: "0123" }, NON: { name: "Amasan", prefix: "AMB" } } });
   await call("PUT", "/api/settings", { ppnRate: 11, leadTime: 30, priceMode: "excl", reviewDays: 30, serviceLevel: 95, windowMonths: 12 });
-  const s = (await call("GET", "/api/state")).body.settings;
-  assert.equal(s.issuer.PPN.name, "CV Hashiru");
+  s = (await call("GET", "/api/state")).body.settings;
+  assert.equal(s.ent.PPN.name, "CV Hashiru");
+  assert.equal(s.ent.PPN.prefix, "HM");
+  assert.equal(s.footer, "Thank you");
   assert.equal(s.invoiceTerms, 14);
   assert.equal(s.leadTime, 30);
+});
+
+test("backup: owners get every record; staff are refused", async () => {
+  const r = await call("GET", "/api/backup");
+  assert.equal(r.status, 200);
+  for (const k of ["items", "customers", "suppliers", "invoices", "invoiceLines", "invoicePays", "pos", "poLines", "supplierPays", "moves"]) assert.ok(Array.isArray(r.body[k]), k);
+  assert.ok(r.body.items.length > 0 && r.body.moves.length > 0);
+  assert.ok(r.body.poLines.every((l) => l.po_number), "lines carry their PO number");
+  await call("POST", "/api/users", { name: "Staff", username: "bk-staff", password: "staff password", role: "staff" });
+  const login = await fetch(base + "/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "erp" }, body: JSON.stringify({ username: "bk-staff", password: "staff password" }) });
+  const staff = login.headers.get("set-cookie").split(";")[0];
+  assert.equal((await call("GET", "/api/backup", undefined, staff)).status, 403);
 });
 
 test("unknown API routes return JSON 404", async () => {

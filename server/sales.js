@@ -6,13 +6,13 @@ import express from "express";
 import { randomUUID } from "node:crypto";
 import { tx } from "./db.js";
 import { HttpError } from "./http.js";
-import { str, numIn, oneOf } from "./validate.js";
-import { invoiceTotals } from "../public/js/invoice.js";
+import { str, numIn, oneOf, termsIn } from "./validate.js";
+import { invoiceTotals, lineNets } from "../public/js/invoice.js";
+import { keyOf } from "../public/js/util.js";
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
-const METHODS = ["transfer", "cash", "giro", "other"];
+const METHODS = ["transfer", "cash", "giro", "offset", "other"];
 const KEEP_DAYS = 400;
-export const PREFIX = { PPN: "INV/P", NON: "INV/N" };
 
 const ymdIn = (v, label) => {
   const s = str(v, 10);
@@ -33,6 +33,9 @@ export function customerFields(b) {
     address: str(b.address, 1000),
     npwp: str(b.npwp, 40),
     notes: str(b.notes, 2000),
+    terms: termsIn(b.terms),
+    internal: b.internal ? 1 : 0,
+    ledger: b.internal ? oneOf(b.ledger, ["PPN", "NON"], "Entity ledger") : "",
   };
   if (!f.name) throw new HttpError(400, "Customer name is required.");
   if (f.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email)) throw new HttpError(400, "That email address doesn't look right.");
@@ -43,7 +46,8 @@ export function customerFields(b) {
   return f;
 }
 
-const customerOut = (c) => ({ id: c.id, name: c.name, contact: c.contact, phone: c.phone, whatsapp: c.whatsapp, email: c.email, address: c.address, npwp: c.npwp, notes: c.notes });
+const customerOut = (c) => ({ id: c.id, name: c.name, contact: c.contact, phone: c.phone, whatsapp: c.whatsapp, email: c.email, address: c.address, npwp: c.npwp, notes: c.notes,
+  terms: c.terms, internal: !!c.internal, ledger: c.ledger });
 const lineOut = (l) => ({ id: l.id, itemKey: l.item_key, sku: l.sku, name: l.name, unit: l.unit, qty: l.qty, price: l.price, discPct: l.disc_pct });
 const payOut = (p) => ({ id: p.id, date: p.pay_date, amount: p.amount, method: p.method, note: p.note, by: p.created_by });
 
@@ -64,7 +68,7 @@ export function listInvoices(db) {
   const pays = group("SELECT * FROM invoice_payments WHERE invoice_id IN (SELECT value FROM json_each(?)) ORDER BY pay_date, created_at");
   return rows.map((i) => ({
     id: i.id, number: i.number || "", tax: i.tax, customerId: i.customer_id, status: i.status, date: i.inv_date, dueDate: i.due_date,
-    note: i.note, nsfp: i.nsfp, custName: i.cust_name, custAddress: i.cust_address, custNpwp: i.cust_npwp,
+    terms: i.terms, transferTo: i.transfer_to, internal: !!i.internal, note: i.note, nsfp: i.nsfp, custName: i.cust_name, custAddress: i.cust_address, custNpwp: i.cust_npwp,
     subtotal: i.subtotal, dppLain: i.dpp_lain, ppn: i.ppn, total: i.total, paid: i.paid,
     createdBy: i.created_by, issuedBy: i.issued_by, issuedAt: i.issued_at, voidedAt: i.voided_at, voidReason: i.void_reason,
     lines: (lines.get(i.id) || []).map(lineOut), payments: (pays.get(i.id) || []).map(payOut),
@@ -80,7 +84,7 @@ export function invoiceDemand(db) {
   const dem = {};
   const months = { PPN: new Set(), NON: new Set() };
   const rows = db.prepare(`SELECT i.tax, l.item_key, l.unit, substr(i.inv_date, 1, 7) AS ym, SUM(l.qty) AS q FROM invoice_lines l JOIN invoices i ON i.id = l.invoice_id
-    WHERE i.status = 'issued' AND substr(i.inv_date, 1, 7) < ? GROUP BY i.tax, l.item_key, l.unit, ym`).all(cur);
+    WHERE i.status = 'issued' AND i.internal = 0 AND substr(i.inv_date, 1, 7) < ? GROUP BY i.tax, l.item_key, l.unit, ym`).all(cur);
   for (const r of rows) {
     months[r.tax].add(r.ym);
     const m = ((dem[r.item_key] ??= { m: {} }).m);
@@ -100,14 +104,16 @@ export function createSales(db, { need, write, addMove, getSettings }) {
     const f = customerFields(req.body);
     const id = randomUUID();
     const now = Date.now();
-    db.prepare("INSERT INTO customers (id, name, contact, phone, whatsapp, email, address, npwp, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(id, f.name, f.contact, f.phone, f.whatsapp, f.email, f.address, f.npwp, f.notes, now, now);
+    db.prepare(`INSERT INTO customers (id, name, contact, phone, whatsapp, email, address, npwp, notes, terms, internal, ledger, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, f.name, f.contact, f.phone, f.whatsapp, f.email, f.address, f.npwp, f.notes, f.terms, f.internal, f.ledger, now, now);
     return { id };
   }));
   customers.put("/:id", need("staff"), json, write((req) => {
     const f = customerFields(req.body);
-    const r = db.prepare("UPDATE customers SET name = ?, contact = ?, phone = ?, whatsapp = ?, email = ?, address = ?, npwp = ?, notes = ?, updated_at = ? WHERE id = ?")
-      .run(f.name, f.contact, f.phone, f.whatsapp, f.email, f.address, f.npwp, f.notes, Date.now(), req.params.id);
+    const r = db.prepare(`UPDATE customers SET name = ?, contact = ?, phone = ?, whatsapp = ?, email = ?, address = ?, npwp = ?, notes = ?, terms = ?, internal = ?, ledger = ?,
+      updated_at = ? WHERE id = ?`)
+      .run(f.name, f.contact, f.phone, f.whatsapp, f.email, f.address, f.npwp, f.notes, f.terms, f.internal, f.ledger, Date.now(), req.params.id);
     if (!r.changes) throw new HttpError(404, "This customer no longer exists.");
   }));
   customers.delete("/:id", need("admin"), write((req) => {
@@ -137,9 +143,10 @@ export function createSales(db, { need, write, addMove, getSettings }) {
     const id = randomUUID();
     const now = Date.now();
     const date = todayYmd();
-    const terms = Math.max(0, Math.round(+getSettings().invoiceTerms || 0));
-    db.prepare("INSERT INTO invoices (id, tax, customer_id, status, inv_date, due_date, created_by, created_at, updated_at) VALUES (?, ?, ?, 'draft', ?, ?, ?, ?, ?)")
-      .run(id, tax, c.id, date, addDays(date, terms), req.user.name, now, now);
+    // Terms: the customer's own, else the default. Transfers to our own entities are due immediately.
+    const terms = c.internal ? 0 : c.terms != null ? c.terms : Math.max(0, Math.round(+getSettings().invoiceTerms || 0));
+    db.prepare("INSERT INTO invoices (id, tax, customer_id, status, inv_date, due_date, terms, created_by, created_at, updated_at) VALUES (?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?)")
+      .run(id, tax, c.id, date, addDays(date, terms), terms, req.user.name, now, now);
     return { id };
   }));
 
@@ -155,7 +162,8 @@ export function createSales(db, { need, write, addMove, getSettings }) {
     }
     const c = customerIn(b.customerId ?? inv.customer_id);
     const date = ymdIn(b.date ?? inv.inv_date, "Invoice date");
-    const due = ymdIn(b.dueDate ?? inv.due_date, "Due date");
+    const terms = b.terms !== undefined ? termsIn(b.terms) ?? 0 : inv.terms;
+    const due = b.terms !== undefined ? addDays(date, terms) : ymdIn(b.dueDate ?? inv.due_date, "Due date");
     if (due < date) throw new HttpError(400, "The due date can't be before the invoice date.");
     const lines = Array.isArray(b.lines) ? b.lines : [];
     db.prepare("DELETE FROM invoice_lines WHERE invoice_id = ?").run(inv.id);
@@ -170,8 +178,8 @@ export function createSales(db, { need, write, addMove, getSettings }) {
       if (disc > 100) throw new HttpError(400, `Discount for ${it.sku} can't be over 100%.`);
       ins.run(randomUUID(), inv.id, it.key, it.sku, it.name, it.unit, qty, numIn(l.price, `Price for ${it.sku}`, { min: 0 }), disc, i);
     });
-    db.prepare("UPDATE invoices SET customer_id = ?, inv_date = ?, due_date = ?, note = ?, updated_at = ? WHERE id = ?")
-      .run(c.id, date, due, str(b.note ?? inv.note, 2000), Date.now(), inv.id);
+    db.prepare("UPDATE invoices SET customer_id = ?, inv_date = ?, due_date = ?, terms = ?, note = ?, updated_at = ? WHERE id = ?")
+      .run(c.id, date, due, terms, str(b.note ?? inv.note, 2000), Date.now(), inv.id);
   })));
 
   invoices.delete("/:id", need("staff"), write((req) => tx(db, () => {
@@ -197,20 +205,43 @@ export function createSales(db, { need, write, addMove, getSettings }) {
       if (it.qty < q) short.push(`${it.sku} (need ${q}, have ${it.qty})`);
     }
     if (short.length) throw new HttpError(409, `Not enough stock: ${short.join(", ")}. Book the incoming goods first, or lower the quantity.`);
-    const year = inv.inv_date.slice(0, 4);
-    const prefix = `${PREFIX[inv.tax]}/${year}/`;
-    const last = db.prepare("SELECT number FROM invoices WHERE number LIKE ? ORDER BY number DESC LIMIT 1").get(prefix + "%");
-    const number = prefix + String(last ? Number(last.number.slice(prefix.length)) + 1 : 1).padStart(4, "0");
-    const t = invoiceTotals(lines.map((l) => ({ qty: l.qty, price: l.price, discPct: l.disc_pct })), inv.tax, getSettings().ppnRate);
+    // Number: <entity prefix>/<year>/<month>/<sequence>, e.g. HM/2026/10/0001. The sequence runs per entity per year.
+    const year = inv.inv_date.slice(0, 4), month = inv.inv_date.slice(5, 7);
+    const prefix = getSettings().ent[inv.tax].prefix;
+    const seq = db.prepare(`SELECT MAX(CAST(substr(number, length(number) - 3) AS INTEGER)) AS n FROM invoices WHERE tax = ? AND number LIKE ?`).get(inv.tax, `${prefix}/${year}/%`).n || 0;
+    const number = `${prefix}/${year}/${month}/${String(seq + 1).padStart(4, "0")}`;
+    const st = getSettings();
+    const priced = lines.map((l) => ({ qty: l.qty, price: l.price, discPct: l.disc_pct }));
+    const t = invoiceTotals(priced, inv.tax, st.ppnRate, st.priceMode);
+    // A sale to one of our own entities is a transfer: out of this ledger, into theirs, at the invoice's net price.
+    const internal = !!c.internal;
+    const transferTo = internal && c.ledger && c.ledger !== inv.tax ? c.ledger : "";
+    const nets = lineNets(priced, t.subtotal);
     for (const [key, q] of need_) {
       const it = db.prepare("SELECT * FROM items WHERE key = ?").get(key);
       db.prepare("UPDATE items SET qty = qty - ?, updated_at = ? WHERE key = ?").run(q, Date.now(), key);
-      addMove(it, "OUT", -q, `Invoice ${number} · ${c.name}`, req.user);
+      addMove(it, internal ? "TRF-OUT" : "SALE", -q, `${number} · ${c.name}`, req.user);
+    }
+    if (transferTo) {
+      lines.forEach((l, i) => {
+        const tk = keyOf(transferTo, l.sku);
+        const unit = l.qty ? nets[i] / l.qty : 0;
+        let dst = db.prepare("SELECT * FROM items WHERE key = ?").get(tk);
+        if (!dst) {
+          db.prepare("INSERT INTO items (key, sku, tax, name, unit, qty, price, min_stock, sell_price, updated_at) VALUES (?, ?, ?, ?, ?, 0, 0, 0, 0, ?)")
+            .run(tk, l.sku, transferTo, l.name, l.unit, Date.now());
+          dst = db.prepare("SELECT * FROM items WHERE key = ?").get(tk);
+        }
+        const oldQ = Math.max(0, dst.qty), oldC = dst.price;
+        const avg = oldC > 0 && oldQ > 0 ? (oldQ * oldC + l.qty * unit) / (oldQ + l.qty) : unit;
+        db.prepare("UPDATE items SET qty = qty + ?, price = ?, updated_at = ? WHERE key = ?").run(l.qty, avg, Date.now(), tk);
+        addMove(dst, "TRF-IN", l.qty, number, req.user);
+      });
     }
     db.prepare(`UPDATE invoices SET status = 'issued', number = ?, cust_name = ?, cust_address = ?, cust_npwp = ?, subtotal = ?, dpp_lain = ?, ppn = ?, total = ?,
-      issued_by = ?, issued_at = ?, updated_at = ? WHERE id = ?`)
-      .run(number, c.name, c.address, c.npwp, t.subtotal, t.dppLain, t.ppn, t.total, req.user.name, Date.now(), Date.now(), inv.id);
-    return { number, total: t.total };
+      internal = ?, transfer_to = ?, issued_by = ?, issued_at = ?, updated_at = ? WHERE id = ?`)
+      .run(number, c.name, c.address, c.npwp, t.subtotal, t.dppLain, t.ppn, t.total, internal ? 1 : 0, transferTo, req.user.name, Date.now(), Date.now(), inv.id);
+    return { number, total: t.total, internal, transferTo };
   })));
 
   invoices.post("/:id/payments", need("staff"), json, write((req) => tx(db, () => {
@@ -237,11 +268,22 @@ export function createSales(db, { need, write, addMove, getSettings }) {
     if (paidOf(inv.id) > 0) throw new HttpError(409, "This invoice has payments. Remove them (refund) before voiding.");
     const reason = str(req.body.reason, 500);
     if (!reason) throw new HttpError(400, "Give a reason for voiding (it's kept with the invoice).");
-    for (const l of linesOf(inv.id)) {
+    const ls = linesOf(inv.id);
+    if (inv.transfer_to) {
+      // Take the transferred stock back out of the receiving ledger first; refuse if it has already been used.
+      for (const l of ls) {
+        const tk = keyOf(inv.transfer_to, l.sku);
+        const dst = db.prepare("SELECT * FROM items WHERE key = ?").get(tk);
+        if (!dst || dst.qty < l.qty) throw new HttpError(409, `The receiving entity no longer has ${l.qty} of ${l.sku}. Move it back first.`);
+        db.prepare("UPDATE items SET qty = qty - ?, updated_at = ? WHERE key = ?").run(l.qty, Date.now(), tk);
+        addMove(dst, "VOID", -l.qty, `Cancel ${inv.number}`, req.user);
+      }
+    }
+    for (const l of ls) {
       const it = db.prepare("SELECT * FROM items WHERE key = ?").get(l.item_key);
       if (!it) continue; // product deleted since; nothing to put back
       db.prepare("UPDATE items SET qty = qty + ?, updated_at = ? WHERE key = ?").run(l.qty, Date.now(), it.key);
-      addMove(it, "IN", l.qty, `Void ${inv.number}`, req.user);
+      addMove(it, "VOID", l.qty, `Cancel ${inv.number}`, req.user);
     }
     db.prepare("UPDATE invoices SET status = 'void', voided_at = ?, void_reason = ?, updated_at = ? WHERE id = ?").run(Date.now(), reason, Date.now(), inv.id);
   })));

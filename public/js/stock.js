@@ -116,16 +116,26 @@ export function demandStats(items, dem, hist, settings, inv = { dem: {}, months:
     const n = vals.length;
     const mean = n ? vals.reduce((a, b) => a + b, 0) / n : 0;
     const sd = n > 1 ? Math.sqrt(vals.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1)) : 0;
-    stats.set(it.key, { n, mean, sd, so, mixed });
+    // Sales in the latest 6 months of the window: 0 with 6+ months of history marks a candidate to stop stocking.
+    stats.set(it.key, { n, mean, sd, so, mixed, recent6: all.slice(0, 6).reduce((a, b) => a + b, 0), months: w.length });
   }
   return { stats, win };
 }
 
-/** All variables a formula can use for one item. */
-export function baseVars(it, ms, ds, settings, onOrder = 0) {
+/** Round an order up to the minimum order quantity and the order multiple. */
+export function roundOrder(q, moq, lot) {
+  if (q <= 0) return 0;
+  q = Math.max(q, moq || 0);
+  if (lot > 0) q = Math.ceil(q / lot) * lot;
+  return Math.ceil(q);
+}
+
+/** All variables a formula can use for one item. `price` is the selling price; `cost` the average landed cost. */
+export function baseVars(it, ms, ds, settings, onOrder = +it.onOrder || 0) {
   const rate = +settings.ppnRate || 0;
   const isP = it.tax === "PPN";
-  const price = +it.price || 0;
+  const price = +it.sellPrice || 0;
+  const cost = +it.cost || 0;
   const incl = settings.priceMode === "incl";
   const excl = isP && incl ? price / (1 + rate / 100) : price;
   const withTax = isP ? (incl ? price : price * (1 + rate / 100)) : price;
@@ -143,15 +153,17 @@ export function baseVars(it, ms, ds, settings, onOrder = 0) {
   const daily = dd > 0 ? dd : adoAvg;
   // Inventory position = on hand + already ordered. Reorder decisions use it so nothing is ordered twice.
   const position = qty + onOrder;
+  const moq = +it.moq || 0, lot = +it.lot || 0;
   return {
-    qty, price, price_excl: excl, price_incl: withTax, value: qty * excl,
-    min_stock: +it.minStock || 0, is_ppn: isP ? 1 : 0, is_set: it.unit === "SET" ? 1 : 0,
+    qty, price, price_excl: excl, price_incl: withTax, cost, value: qty * cost,
+    margin_pct: excl > 0 && cost > 0 ? ((excl - cost) / excl) * 100 : 0,
+    min_stock: +it.minStock || 0, moq, lot, is_ppn: isP ? 1 : 0, is_set: it.unit === "SET" ? 1 : 0,
     ppn_rate: rate, lead_time: L, in_30: s.in, out_30: s.out, avg_daily_out: adoAvg,
     hist_months: d.n, stockout_months: d.so, avg_monthly_demand: d.mean, sd_monthly_demand: d.sd,
     avg_daily_demand: dd, review_period: R, service_z: Z,
     safety_stock: ss, reorder_point: rop, order_up_to: up,
-    on_order: onOrder, inventory_position: position,
-    suggested_order: position < rop ? Math.max(0, up - position) : 0, mixed_units: d.mixed,
+    on_order: onOrder, inventory_position: position, position,
+    suggested_order: position < rop ? roundOrder(up - position, moq, lot) : 0, mixed_units: d.mixed,
     days_cover: daily > 0 ? qty / daily : 9999,
   };
 }
@@ -185,17 +197,16 @@ export function onOrderByItem(pos) {
   return m;
 }
 
-export function evaluate({ items, rules, moves, dem, hist, settings, pos = [], invDem, now = Date.now() }) {
+export function evaluate({ items, rules, moves, dem, hist, settings, invDem, now = Date.now() }) {
   compileRules(rules);
   const ms = moveStats(moves, now);
-  const onOrder = onOrderByItem(pos);
   const { stats: dstats, win } = demandStats(items, dem, hist, settings, invDem);
   const colRules = rules.filter((r) => r.kind === "column" && r.enabled !== false);
   const alertRules = rules.filter((r) => r.kind === "alert" && r.enabled !== false && r._ast);
   const derived = new Map();
   const alerts = [];
   for (const it of Object.values(items)) {
-    const V = baseVars(it, ms, dstats.get(it.key), settings, onOrder.get(it.key) || 0);
+    const V = baseVars(it, ms, dstats.get(it.key), settings);
     const d = { vars: V, cols: {}, alerts: [] };
     for (const r of colRules) {
       if (!r._ast || !inScope(r, it)) { d.cols[r.id] = null; continue; }
@@ -219,5 +230,5 @@ export function evaluate({ items, rules, moves, dem, hist, settings, pos = [], i
     derived.set(it.key, d);
   }
   alerts.sort((a, b) => (a.r.severity === "crit" ? 0 : 1) - (b.r.severity === "crit" ? 0 : 1) || a.it.sku.localeCompare(b.it.sku));
-  return { derived, alerts, colRules, dstats, win, ms, onOrder };
+  return { derived, alerts, colRules, dstats, win, ms };
 }
