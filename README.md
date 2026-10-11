@@ -10,7 +10,7 @@ Spare-part ERP for two entities: **CV. Hashiru Motorindo** (PPN) and **CV. Amasa
 
 ## Features
 
-Pages are grouped like the artifact: **Dashboard** | Inventory, Alerts | Sales, Purchasing, Receivables, Payables, Expenses, Employees, Contacts | Stock moves, Files, Formulas, Settings, Users.
+Pages are grouped like the artifact: **Dashboard** | Inventory, Alerts | Sales, Purchasing, Receivables, Payables, Expenses, Employees, Contacts | Stock moves, Reports, Files, Formulas, Settings, Users.
 
 | Area | What it does |
 |---|---|
@@ -30,6 +30,7 @@ Pages are grouped like the artifact: **Dashboard** | Inventory, Alerts | Sales, 
 | **Files & reports** | Upload any file (≤ 15 MB). Hashiru sales reports, stock reports and yearly workbooks are parsed, reconciled to the report totals, and feed demand history. |
 | **Safety stock** | `Z × σ(monthly sales) × √((lead time + check interval) ÷ 30.4)`, plus reorder point, order-up-to and suggested order. Months blocked by a stock-out are left out. |
 | **Import / export / backup** | Import products from Excel/CSV (`Harga Jual` = sell price, `Harga Beli` / `HPP` = cost, `MOQ`; missing columns keep their values). Export stock or alerts. **Full backup to Excel**: products, contacts, invoices, receivables, purchase orders with landed cost, both payment ledgers and all stock moves. |
+| **Monthly reports (PDF)** | Reports page: pick a month and entity, tick the sections (summary, sales, receivables, purchasing, payables, expenses, payroll, closing stock, stock moves) and download a PDF. Staff get the sales and stock sections only. **Closing stock is saved automatically**: a few seconds after any change, the month's stock is recorded, so the last record in a month is its month-end stock. The archive lists every month with records. |
 | **Live sync** | Every open browser updates when anyone saves (Server-Sent Events). |
 
 ## Running it
@@ -92,4 +93,5 @@ legacy/        the original single-file artifact
 - **Invoices are not submitted to DJP.** Issue the official e-Faktur in Coretax yourself and paste its number (NSFP) on the invoice. Invoices show PPN 11% of the price by default. Coretax computes 12% × DPP Nilai Lain (11/12); it's the same tax, but rounding can make the two differ by Rp 1 (Rp 1,000,000 → Rp 110,000 vs Rp 109,999). If your invoice totals must match the e-Faktur to the rupiah, switch "PPN on invoices" to the Coretax format. Invoices already posted keep their amounts.
 - **Sales history:** issued invoices feed the safety-stock model for complete months that have no uploaded Hashiru sales report. Where a month has both, the report is used, so nothing is counted twice.
 - **Payroll does not calculate BPJS or PPh 21.** Enter them as deductions; your accountant or payroll provider remains the source for those amounts and the tax filings. Expenses are recorded when paid (cash basis), not when the bill arrives.
+- **Monthly PDFs** use the standard PDF font, which covers Indonesian and Western text; names written in Chinese characters (e.g. a supplier's Chinese name) won't print correctly, so keep a Latin spelling in the company name. Closing stock exists only for months the app was running in; earlier months show no closing stock.
 - **Not yet built:** sales returns / credit notes (today: cancel and re-post), multiple warehouses, a full audit log of every change, and a printable PDF purchase order (Excel and message only).

@@ -243,6 +243,20 @@ CREATE TABLE IF NOT EXISTS expenses (
   updated_at  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS expenses_date ON expenses (exp_date);
+-- Stock per product as last seen in each month; the last copy taken in a month is its closing stock.
+CREATE TABLE IF NOT EXISTS stock_snapshots (
+  ym         TEXT NOT NULL,
+  key        TEXT NOT NULL,
+  sku        TEXT NOT NULL,
+  tax        TEXT NOT NULL,
+  name       TEXT NOT NULL DEFAULT '',
+  unit       TEXT NOT NULL DEFAULT 'PCS',
+  qty        REAL NOT NULL,
+  cost       REAL NOT NULL DEFAULT 0,
+  sell_price REAL NOT NULL DEFAULT 0,
+  taken_at   INTEGER NOT NULL,
+  PRIMARY KEY (ym, key)
+);
 CREATE TABLE IF NOT EXISTS employees (
   id          TEXT PRIMARY KEY,
   name        TEXT NOT NULL,

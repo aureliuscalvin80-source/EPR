@@ -10,6 +10,8 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="/css/app.css">
 <script src="/vendor/xlsx/xlsx.full.min.js" defer></script>
+<script src="/vendor/jspdf/jspdf.umd.min.js" defer></script>
+<script src="/vendor/jspdf-autotable/jspdf.plugin.autotable.min.js" defer></script>
 <script type="module" src="/js/app.js"></script>
 </head>
 <body class="booting">
@@ -70,6 +72,7 @@
       <button class="nav-item" role="tab" data-tab="contacts" aria-selected="false">Contacts</button>
       <span class="sep" aria-hidden="true"></span>
       <button class="nav-item" role="tab" data-tab="moves" aria-selected="false">Stock moves</button>
+      <button class="nav-item" role="tab" data-tab="reports" aria-selected="false">Reports</button>
       <button class="nav-item" role="tab" data-tab="files" aria-selected="false">Files</button>
       <button class="nav-item" role="tab" data-tab="formulas" aria-selected="false">Formulas</button>
       <button class="nav-item" role="tab" data-tab="settings" aria-selected="false" data-need="admin">Settings</button>
@@ -248,6 +251,23 @@
   </div>
   <div class="card"><h2>Payroll history</h2>
     <div class="tbl-wrap"><table><thead><tr><th>Month</th><th class="num">People paid</th><th class="num" id="prHPpn">PPN entity</th><th class="num" id="prHNon">Non-PPN entity</th><th class="num">Total</th></tr></thead><tbody id="prHist"></tbody></table></div></div>
+</section>
+
+<!-- MONTHLY REPORTS -->
+<section class="page" id="page-reports" hidden>
+  <header class="page-head"><div><h1>Monthly reports</h1><p class="sub">Download any month as a PDF. Every record is dated, and closing stock is saved automatically each month.</p></div></header>
+  <div class="card">
+    <div class="row wrap">
+      <label class="inline-l">Month <input type="month" id="rpMonth"></label>
+      <select id="rpLedger" aria-label="Entity"><option value="">Both entities</option><option value="PPN">PPN entity</option><option value="NON">Non-PPN entity</option></select>
+      <span class="spacer"></span>
+      <button class="btn primary" id="rpGo"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Download PDF</button>
+    </div>
+    <div class="rp-parts" id="rpParts"></div>
+    <div class="hint" id="rpMsg"></div>
+  </div>
+  <div class="card"><h2>Monthly archive</h2><p class="hint">Months with records. Closing stock is the stock as it stood after the last change in that month.</p>
+    <div class="tbl-wrap"><table><thead><tr><th>Month</th><th>Closing stock</th><th></th></tr></thead><tbody id="rpArch"></tbody></table></div></div>
 </section>
 
 <!-- CONTACTS -->

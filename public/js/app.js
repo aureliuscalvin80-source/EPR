@@ -4,6 +4,7 @@ import { evaluate, baseVars, moveStats, coverage, MON_N, ymOf, ymAdd, ymLabel, D
 import { detectPlan, detectMonth, monthOfName, hasKodeHeader, taxFromHeader, parseSales, parseStock, parseWorkbook, readProductList } from "./reports.js";
 import { fmtRp, fmtN, esc, keyOf, taxLabel, today } from "./util.js";
 import { channelLabel, supplierChannels, waNumber, whatsappUrl, mailtoUrl, telUrl, defaultOrderQty, poMessage, poSubject } from "./contact.js";
+import { buildMonthlyPdf, PARTS, pdfReady, monthLong } from "./monthly-pdf.js";
 import { lineAmount, invoiceTotals, lineNets, paymentState, terbilang, invoiceMessage, invoiceHtml } from "./invoice.js";
 
 /* ---------- state ---------- */
@@ -164,6 +165,7 @@ function showTab(t) {
   try { localStorage.setItem("erp.tab", t); } catch {}
   if (location.hash.slice(1) !== t) history.pushState(null, "", "#" + t);
   if (t === "users") loadUsers();
+  if (t === "reports") loadReports();
 }
 $$(".nav-item").forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
 window.addEventListener("hashchange", () => showTab(location.hash.slice(1)));
@@ -1794,6 +1796,52 @@ $("#emDel").onclick = async () => {
   try { await api.employeeDelete(emEdit); $("#empDlg").close(); toast("Employee deleted"); await load(); } catch (e) { $("#emErr").textContent = e.message; }
 };
 
+/* ---------- monthly reports ---------- */
+const RP_KEY = "erp.reportParts";
+function rpChosen() {
+  try { const v = JSON.parse(localStorage.getItem(RP_KEY)); if (Array.isArray(v)) return new Set(v); } catch {}
+  return new Set(PARTS.map((p) => p[0]));
+}
+function renderReportParts() {
+  const chosen = rpChosen();
+  $("#rpParts").innerHTML = PARTS.filter(([, , own]) => !own || isOwner()).map(([k, l]) =>
+    `<label class="chk"><input type="checkbox" data-part="${k}" ${chosen.has(k) ? "checked" : ""}> ${l}</label>`).join("");
+}
+$("#rpParts").addEventListener("change", () => {
+  try { localStorage.setItem(RP_KEY, JSON.stringify($$("#rpParts [data-part]").filter((x) => x.checked).map((x) => x.dataset.part))); } catch {}
+});
+async function loadReports() {
+  if (!$("#rpMonth").value) $("#rpMonth").value = today().slice(0, 7);
+  $("#rpMonth").max = today().slice(0, 7);
+  renderReportParts();
+  try {
+    const ms = await api.reportMonths();
+    $("#rpArch").innerHTML = ms.map((m) => `<tr><td><strong>${monthLong(m.ym)}</strong>${m.ym === today().slice(0, 7) ? ' <span class="chip unit">this month</span>' : ""}</td>
+      <td>${m.snapshotAt ? `<span class="okmsg">Saved</span> <span class="hint">${new Date(m.snapshotAt).toLocaleString("id-ID")}</span>` : '<span class="muted">Not recorded (before closing stock was saved)</span>'}</td>
+      <td><button class="btn small" data-rpym="${m.ym}">Download PDF</button></td></tr>`).join("");
+  } catch (e) { handleErr(e); }
+}
+async function downloadReport(ym, btn) {
+  const msg = $("#rpMsg");
+  if (!pdfReady()) { msg.className = "err"; msg.textContent = "The PDF writer did not load. Reload the page and try again."; return; }
+  const parts = new Set($$("#rpParts [data-part]").filter((x) => x.checked).map((x) => x.dataset.part));
+  if (!parts.size) { msg.className = "err"; msg.textContent = "Tick at least one section."; return; }
+  const label = btn.innerHTML;
+  btn.disabled = true;
+  btn.textContent = "Preparing…";
+  try {
+    const d = await api.reportMonth(ym);
+    const ledger = $("#rpLedger").value;
+    const doc = buildMonthlyPdf(d, { parts, ledger, ent: S.settings.ent });
+    const name = `report-${ym}${ledger ? "-" + (S.settings.ent?.[ledger]?.prefix || ledger) : ""}.pdf`;
+    doc.save(name);
+    msg.className = "okmsg";
+    msg.textContent = `Downloaded ${name} · ${plural(doc.internal.getNumberOfPages(), "page")}`;
+  } catch (e) { msg.className = "err"; msg.textContent = e.message; } finally { btn.disabled = false; btn.innerHTML = label; }
+}
+$("#rpGo").onclick = () => downloadReport($("#rpMonth").value || today().slice(0, 7), $("#rpGo"));
+$("#rpArch").addEventListener("click", (e) => { const b = e.target.closest("[data-rpym]"); if (b) { $("#rpMonth").value = b.dataset.rpym; downloadReport(b.dataset.rpym, b); } });
+
 /* ---------- formulas, files & coverage rendering ---------- */
 function renderRules() {
   $("#varList").innerHTML = VARS.map(([k, d]) => `<code>${k}</code><span>${d}</span>`).join("") +
@@ -2187,7 +2235,7 @@ function fillEntityLabels() {
   for (const t of ["PPN", "NON"]) {
     const n = entName(t);
     for (const sel of ["#invNewTax", "#abLedger", "#pLedger", "#impTax", "#exEnt", "#emEnt"]) set(sel, [t, n]);
-    for (const sel of ["#sLedger", "#fTax", "#exLedger"]) set(sel, [t, `${n} only`]);
+    for (const sel of ["#sLedger", "#fTax", "#exLedger", "#rpLedger"]) set(sel, [t, `${n} only`]);
   }
   for (const id of ["#exHPpn", "#prHPpn"]) $(id).textContent = entName("PPN");
   for (const id of ["#exHNon", "#prHNon"]) $(id).textContent = entName("NON");

@@ -10,6 +10,7 @@ import { createAuth, makeSetupCode } from "./auth.js";
 import { createPurchasing, listPos, listSupplierPays, supplierHasPos } from "./purchasing.js";
 import { createSales, listCustomers, listInvoices, invoiceDemand } from "./sales.js";
 import { createCosts, listExpenses, listEmployees, listSalaries } from "./costs.js";
+import { createMonthly, snapshotStock } from "./monthly.js";
 import { str, numIn, oneOf, itemFields, ruleFields, supplierFields } from "./validate.js";
 import { DEFAULT_SETTINGS } from "../public/js/stock.js";
 import { keyOf } from "../public/js/util.js";
@@ -17,6 +18,8 @@ import { keyOf } from "../public/js/util.js";
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PUBLIC_DIR = path.join(ROOT, "public");
 const XLSX_DIST = path.join(ROOT, "node_modules", "xlsx", "dist");
+const JSPDF_DIST = path.join(ROOT, "node_modules", "jspdf", "dist");
+const AUTOTABLE_DIST = path.join(ROOT, "node_modules", "jspdf-autotable", "dist");
 const MAX_UPLOAD = 15 * 1024 * 1024;
 const MOVE_DAYS = 31;
 
@@ -42,8 +45,14 @@ export function createApp({ dataDir, setupCode = makeSetupCode(), secureCookies 
 
   // ---------- live updates (Server-Sent Events) ----------
   const clients = new Set(); // { res, userId, sid }
+  // Closing stock: copy the stock into this month's snapshot a few seconds after the last change.
+  let snapTimer = null;
+  const takeSnapshot = () => { snapTimer = null; try { snapshotStock(db); } catch (e) { console.error("Stock snapshot failed:", e); } };
   const changed = () => {
     for (const c of clients) c.res.write("event: change\ndata: {}\n\n");
+    clearTimeout(snapTimer);
+    snapTimer = setTimeout(takeSnapshot, 5000);
+    snapTimer.unref?.();
   };
   // A signed-out or switched-off user stops receiving live data at once.
   const onUserRevoked = (userId, exceptSid) => {
@@ -413,6 +422,10 @@ export function createApp({ dataDir, setupCode = makeSetupCode(), secureCookies 
   app.use("/api/employees", costs.employees);
   app.use("/api/payroll", costs.payroll);
 
+  // ---------- monthly reports ----------
+  app.use("/api/reports", createMonthly(db, { need }));
+  takeSnapshot(); // the current month is on record from the start
+
   // ---------- purchase orders ----------
   app.use("/api/pos", createPurchasing(db, { need, write, addMove, getSettings }));
 
@@ -444,6 +457,8 @@ export function createApp({ dataDir, setupCode = makeSetupCode(), secureCookies 
   app.use("/api", (req, res) => res.status(404).json({ error: "Not found" }));
   // SheetJS is served locally so spreadsheets can be read without internet access.
   app.use("/vendor/xlsx", express.static(XLSX_DIST));
+  app.use("/vendor/jspdf", express.static(JSPDF_DIST));
+  app.use("/vendor/jspdf-autotable", express.static(AUTOTABLE_DIST));
   app.use(express.static(PUBLIC_DIR));
 
   // eslint-disable-next-line no-unused-vars
@@ -457,6 +472,7 @@ export function createApp({ dataDir, setupCode = makeSetupCode(), secureCookies 
   app.locals.setupCode = setupCode;
   app.locals.needsSetup = () => auth.userCount() === 0;
   app.locals.close = () => {
+    if (snapTimer) { clearTimeout(snapTimer); takeSnapshot(); }
     for (const c of clients) c.res.end();
     db.close();
   };

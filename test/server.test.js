@@ -370,6 +370,34 @@ test("sell price can be set on its own without touching stock", async () => {
   assert.equal((await call("PUT", "/api/items/NON~NOPE/sell-price", { sellPrice: 1 })).status, 404);
 });
 
+test("monthly report: month data, closing stock snapshot, owner-only money", async () => {
+  const ym = new Date().toISOString().slice(0, 7);
+  assert.equal((await call("GET", "/api/reports/month?month=2026-13")).status, 400);
+  assert.equal((await call("GET", "/api/reports/month?month=2999-01")).status, 400, "future months refused");
+  app.locals.close(); // flushes the pending snapshot (and closes the DB), so reopen
+  app = createApp({ dataDir: dir, setupCode: "TEST-CODE" });
+  server.close();
+  await new Promise((r) => (server = app.listen(0, "127.0.0.1", r)));
+  base = `http://127.0.0.1:${server.address().port}`;
+  const r = await call("GET", `/api/reports/month?month=${ym}`);
+  assert.equal(r.status, 200);
+  const d = r.body;
+  assert.equal(d.stock.source, "snapshot");
+  assert.ok(d.stock.items.length > 0 && "cost" in d.stock.items[0]);
+  for (const k of ["invoices", "moves", "arPayments", "arOpen", "poOrdered", "poReceived", "apPayments", "apOpen", "expenses", "salaries"]) assert.ok(Array.isArray(d[k]), k);
+  assert.ok(d.invoices.some((i) => i.number) || d.invoices.length === 0);
+  const months = (await call("GET", "/api/reports/months")).body;
+  assert.ok(months.some((m) => m.ym === ym && m.snapshotAt));
+  // staff: stock and sales only
+  const login = await fetch(base + "/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "erp" }, body: JSON.stringify({ username: "bk-staff", password: "staff password" }) });
+  const staff = login.headers.get("set-cookie").split(";")[0];
+  const sd = (await call("GET", `/api/reports/month?month=${ym}`, undefined, staff)).body;
+  assert.equal(sd.arOpen, undefined);
+  assert.equal(sd.expenses, undefined);
+  assert.ok(sd.stock.items.every((s) => !("cost" in s)));
+  assert.ok(sd.invoices.every((i) => !("cogs" in i)));
+});
+
 test("unknown API routes return JSON 404", async () => {
   assert.equal((await call("GET", "/api/nope")).status, 404);
 });
