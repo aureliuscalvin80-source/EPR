@@ -308,6 +308,54 @@ test("backup: owners get every record; staff are refused", async () => {
   assert.equal((await call("GET", "/api/backup", undefined, staff)).status, 403);
 });
 
+test("expenses: per entity and month, recurring copy, salaries refused", async () => {
+  assert.equal((await call("POST", "/api/expenses", { ledger: "PPN", date: "2026-01-31", category: "Salaries", amount: 5 })).status, 400, "salaries go through payroll");
+  assert.equal((await call("POST", "/api/expenses", { ledger: "PPN", date: "2026-01-31", category: "Rent", amount: 0 })).status, 400);
+  const rent = (await call("POST", "/api/expenses", { ledger: "PPN", date: "2026-01-31", category: "Rent", description: "Shop", amount: 4000000, recurring: true })).body.id;
+  await call("POST", "/api/expenses", { ledger: "NON", date: "2026-01-10", category: "Fuel", amount: 150000 });
+  let r = await call("POST", "/api/expenses/copy-recurring", { month: "2026-02" });
+  assert.deepEqual(r.body, { copied: 1, found: 1 });
+  r = await call("POST", "/api/expenses/copy-recurring", { month: "2026-02" });
+  assert.equal(r.body.copied, 0, "copying twice adds nothing");
+  const st = (await call("GET", "/api/state")).body;
+  const feb = st.expenses.filter((e) => e.date.startsWith("2026-02"));
+  assert.equal(feb.length, 1);
+  assert.equal(feb[0].date, "2026-02-28", "31 Jan becomes the last day of February");
+  assert.equal(feb[0].sourceId, rent);
+  assert.equal((await call("PUT", `/api/expenses/${feb[0].id}`, { ...feb[0], amount: 4200000 })).status, 200);
+  assert.equal((await call("DELETE", `/api/expenses/${feb[0].id}`)).status, 200);
+});
+
+test("employees and payroll: one payment per month, run for all, history kept", async () => {
+  assert.equal((await call("POST", "/api/employees", { name: "", ledger: "PPN" })).status, 400);
+  const a = (await call("POST", "/api/employees", { name: "Budi", position: "Gudang", ledger: "PPN", baseSalary: 4000000, allowance: 500000 })).body.id;
+  const b = (await call("POST", "/api/employees", { name: "Sari", ledger: "NON", baseSalary: 3500000 })).body.id;
+  await call("POST", "/api/employees", { name: "Old", ledger: "NON", baseSalary: 3000000, active: false });
+  let r = await call("POST", "/api/payroll", { employeeId: a, period: "2026-03", date: "2026-03-28", bonus: 250000, deduction: 100000 });
+  assert.equal(r.status, 200);
+  assert.equal((await call("POST", "/api/payroll", { employeeId: a, period: "2026-03" })).status, 409, "already paid this month");
+  assert.equal((await call("POST", "/api/payroll", { employeeId: a, period: "2026-04", deduction: 9e9 })).status, 400);
+  r = await call("POST", "/api/payroll/run", { period: "2026-03", date: "2026-03-28" });
+  assert.deepEqual(r.body, { paid: 1, total: 3500000 }, "only Sari was unpaid; inactive staff are skipped");
+  assert.equal((await call("POST", "/api/payroll/run", { period: "2026-03" })).status, 400);
+  const st = (await call("GET", "/api/state")).body;
+  const mar = st.salaries.filter((p) => p.period === "2026-03");
+  assert.equal(mar.find((p) => p.employeeId === a).net, 4000000 + 500000 + 250000 - 100000);
+  assert.equal(mar.find((p) => p.employeeId === b).ledger, "NON");
+  // A raise later doesn't change what was paid.
+  await call("PUT", `/api/employees/${a}`, { name: "Budi", ledger: "PPN", baseSalary: 5000000 });
+  assert.equal((await call("GET", "/api/state")).body.salaries.find((p) => p.employeeId === a && p.period === "2026-03").base, 4000000);
+  assert.equal((await call("DELETE", `/api/employees/${a}`)).status, 409, "employees with salary history are kept");
+  // Staff see none of it and can't change it.
+  await call("POST", "/api/users", { name: "Staff2", username: "pay-staff", password: "staff password", role: "staff" });
+  const login = await fetch(base + "/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "erp" }, body: JSON.stringify({ username: "pay-staff", password: "staff password" }) });
+  const staff = login.headers.get("set-cookie").split(";")[0];
+  const sst = (await call("GET", "/api/state", undefined, staff)).body;
+  assert.deepEqual([sst.expenses.length, sst.employees.length, sst.salaries.length], [0, 0, 0]);
+  assert.equal((await call("POST", "/api/expenses", { ledger: "PPN", date: "2026-03-01", category: "Rent", amount: 1 }, staff)).status, 403);
+  assert.equal((await call("POST", "/api/payroll/run", { period: "2026-05" }, staff)).status, 403);
+});
+
 test("unknown API routes return JSON 404", async () => {
   assert.equal((await call("GET", "/api/nope")).status, 404);
 });

@@ -10,11 +10,11 @@ Spare-part ERP for two entities: **CV. Hashiru Motorindo** (PPN) and **CV. Amasa
 
 ## Features
 
-Pages are grouped like the artifact: **Dashboard** | Inventory, Alerts | Sales, Purchasing, Receivables, Payables, Contacts | Stock moves, Files, Formulas, Settings, Users.
+Pages are grouped like the artifact: **Dashboard** | Inventory, Alerts | Sales, Purchasing, Receivables, Payables, Expenses, Employees, Contacts | Stock moves, Files, Formulas, Settings, Users.
 
 | Area | What it does |
 |---|---|
-| **Dashboard** (owner) | Stock at cost per entity, goods on the way, receivables with aging buckets, what you owe suppliers, sales and gross margin by month and entity, top SKUs, and **candidates to cut** (in stock, no sales in 6 months, sorted by money tied up). |
+| **Dashboard** (owner) | Stock at cost per entity, goods on the way, receivables with aging buckets, what you owe suppliers, sales, gross margin, expenses and **operating profit** by month and entity, top SKUs, and **candidates to cut** (in stock, no sales in 6 months, sorted by money tied up). |
 | **Inventory** | Products by SKU and entity, unit (PCS / SET), on hand, **on order**, sell price, price incl. PPN, **average landed cost**, margin, value at cost, min stock, **MOQ** and **order multiple**, supplier. Costs are visible to the owner only. |
 | **Alerts** | Live list driven by alert formulas, comparing **stock on hand + on order** against the reorder point (or min stock without sales history). **Turn alerts into a purchase order**: pick the entity and a supplier (or "any supplier": one draft PO per supplier). Suggested quantities are rounded up to MOQ and order multiple. |
 | **Purchasing** (owner) | `PO/2026/0001`. Draft → **Ordered** → **Part received** → **Received** (or *Closed short* / *Cancelled*). Each PO has a receiving entity, order date, expected arrival, **currency (IDR / CNY / USD) and rate**, freight, import duty and other costs. Receiving books stock in at **landed cost** (price × rate + charges spread by value) and updates the product's **moving-average cost**. Send the order by WhatsApp / email / WeChat / phone, or download it as Excel for the supplier. |
@@ -22,6 +22,8 @@ Pages are grouped like the artifact: **Dashboard** | Inventory, Alerts | Sales, 
 | **Sales** | Invoices per entity, numbered `HM/2026/10/0001` and `AMB/2026/10/0001` (prefixes in Settings). Draft → **Post invoice** (takes stock out; refuses if stock is short) → paid, or **Cancel** (owner, with a reason; stock goes back, the number is not reused). PPN invoices show DPP Nilai Lain (11/12) and PPN 12%, with a field for the e-Faktur number (NSFP). Print / PDF with letterhead and terbilang; send by WhatsApp or email. |
 | **Internal transfers** | Mark a contact as one of your own entities. A posted invoice to it moves the stock into the other entity at the net price (updating its average cost) and stays out of sales, demand and receivables. |
 | **Receivables** (owner) | Open invoices oldest first, overdue days, totals per customer, recent payments; record payments (transfer, cash, giro, offset). |
+| **Expenses** (owner) | Running costs per entity with date, category, description and how they were paid. Mark rent, internet and the like as **monthly** and copy them into the next month in one click. Each month shows totals by category and entity, and a **monthly history** compares every month with the one before. Paid salaries are included automatically; typing "Salaries" as an expense is refused so nothing is counted twice. |
+| **Employees & payroll** (owner) | Employee list with position, employing entity, phone, bank account, start date, base salary and fixed allowance; switch people to inactive instead of deleting them. **Payroll** per month: pay one person with a bonus or deductions, or pay everyone still unpaid at their standard salary. One payment per person per month; amounts are copied in, so a later raise doesn't rewrite history. |
 | **Contacts** | Customers and suppliers on one page. Suppliers: currency, terms, WhatsApp / WeChat / email / phone, NPWP, address. Customers: terms, NPWP, address, internal flag. |
 | **Users & roles** | Sign-in required. **Admin = owner**: everything, including costs, purchasing, money pages and the dashboard. **Staff**: inventory, alerts, sales invoices, contacts, stock moves, files; no costs. **Viewer**: read only. |
 | **Formulas** | Small expression language (no `eval`) for alert rules and computed columns, with live "would trigger on N items" testing. Variables include `position`, `cost`, `margin_pct`, `moq`, `lot`. |
@@ -89,4 +91,5 @@ legacy/        the original single-file artifact
 - **Average cost** is a moving average of landed cost. Stock that was zero or negative when goods arrive takes the new landed cost as is.
 - **Invoices are not submitted to DJP.** Issue the official e-Faktur in Coretax yourself and paste its number (NSFP) on the invoice. Have your accountant confirm the PPN presentation (DPP Nilai Lain 11/12 × 12%, rounded down to whole rupiah) matches what Coretax produces for your goods.
 - **Sales history:** issued invoices feed the safety-stock model for complete months that have no uploaded Hashiru sales report. Where a month has both, the report is used, so nothing is counted twice.
+- **Payroll does not calculate BPJS or PPh 21.** Enter them as deductions; your accountant or payroll provider remains the source for those amounts and the tax filings. Expenses are recorded when paid (cash basis), not when the bill arrives.
 - **Not yet built:** sales returns / credit notes (today: cancel and re-post), multiple warehouses, a full audit log of every change, and a printable PDF purchase order (Excel and message only).

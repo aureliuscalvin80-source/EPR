@@ -9,6 +9,7 @@ import { applyReports } from "./reports.js";
 import { createAuth, makeSetupCode } from "./auth.js";
 import { createPurchasing, listPos, listSupplierPays, supplierHasPos } from "./purchasing.js";
 import { createSales, listCustomers, listInvoices, invoiceDemand } from "./sales.js";
+import { createCosts, listExpenses, listEmployees, listSalaries } from "./costs.js";
 import { str, numIn, oneOf, itemFields, ruleFields, supplierFields } from "./validate.js";
 import { DEFAULT_SETTINGS } from "../public/js/stock.js";
 import { keyOf } from "../public/js/util.js";
@@ -134,6 +135,9 @@ export function createApp({ dataDir, setupCode = makeSetupCode(), secureCookies 
       suppliers: db.prepare("SELECT * FROM suppliers ORDER BY company COLLATE NOCASE").all().map(supplierOut),
       pos: owner ? listPos(db) : [],
       supplierPays: owner ? listSupplierPays(db) : [],
+      expenses: owner ? listExpenses(db) : [],
+      employees: owner ? listEmployees(db) : [],
+      salaries: owner ? listSalaries(db) : [],
       customers: listCustomers(db),
       invoices: owner ? listInvoices(db) : listInvoices(db).map(({ payments, paid, ...i }) => ({ ...i, payments: [], paid: 0 })),
       invDem: invoiceDemand(db),
@@ -394,6 +398,12 @@ export function createApp({ dataDir, setupCode = makeSetupCode(), secureCookies 
   app.use("/api/customers", sales.customers);
   app.use("/api/invoices", sales.invoices);
 
+  // ---------- expenses, employees, payroll (owners) ----------
+  const costs = createCosts(db, { need, write });
+  app.use("/api/expenses", costs.expenses);
+  app.use("/api/employees", costs.employees);
+  app.use("/api/payroll", costs.payroll);
+
   // ---------- purchase orders ----------
   app.use("/api/pos", createPurchasing(db, { need, write, addMove, getSettings }));
 
@@ -416,6 +426,9 @@ export function createApp({ dataDir, setupCode = makeSetupCode(), secureCookies 
       poLines: all("SELECT l.*, p.number AS po_number FROM po_lines l JOIN purchase_orders p ON p.id = l.po_id ORDER BY p.created_at, l.pos"),
       supplierPays: all("SELECT s.*, p.number AS po_number FROM supplier_payments s JOIN purchase_orders p ON p.id = s.po_id ORDER BY s.pay_date"),
       moves: all("SELECT * FROM moves ORDER BY t"),
+      expenses: all("SELECT * FROM expenses ORDER BY exp_date, created_at"),
+      employees: all("SELECT * FROM employees ORDER BY name COLLATE NOCASE"),
+      salaries: all("SELECT * FROM salary_payments ORDER BY period, name COLLATE NOCASE"),
     });
   });
 

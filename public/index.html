@@ -65,6 +65,8 @@
       <button class="nav-item" role="tab" data-tab="po" aria-selected="false" data-need="admin">Purchasing<span class="count zero" id="poBadge">0</span></button>
       <button class="nav-item" role="tab" data-tab="ar" aria-selected="false" data-need="admin">Receivables<span class="count zero" id="arBadge">0</span></button>
       <button class="nav-item" role="tab" data-tab="ap" aria-selected="false" data-need="admin">Payables</button>
+      <button class="nav-item" role="tab" data-tab="expenses" aria-selected="false" data-need="admin">Expenses</button>
+      <button class="nav-item" role="tab" data-tab="employees" aria-selected="false" data-need="admin">Employees</button>
       <button class="nav-item" role="tab" data-tab="contacts" aria-selected="false">Contacts</button>
       <span class="sep" aria-hidden="true"></span>
       <button class="nav-item" role="tab" data-tab="moves" aria-selected="false">Stock moves</button>
@@ -84,8 +86,8 @@
   <div class="kpis" id="dKpis"></div>
   <div class="grid2">
     <div class="card"><div class="row"><h2>Receivables aging</h2><span class="spacer"></span><span class="hint" id="dAgingNote"></span></div><div class="aging" id="dAging"></div></div>
-    <div class="card"><h2>Sales and margin</h2><p class="hint">Invoices posted here · excl. PPN · transfers between your own entities left out · margin at each SKU's current average landed cost.</p>
-      <div class="tbl-wrap"><table><thead><tr><th>Month</th><th>Entity</th><th class="num">Net sales</th><th class="num">Gross margin</th><th class="num">Margin</th></tr></thead><tbody id="dSales"></tbody></table></div></div>
+    <div class="card"><h2>Sales, margin and profit</h2><p class="hint">Invoices posted here · excl. PPN · transfers between your own entities left out · margin at each SKU's current average landed cost · operating profit = gross margin − expenses and salaries paid that month.</p>
+      <div class="tbl-wrap"><table><thead><tr><th>Month</th><th>Entity</th><th class="num">Net sales</th><th class="num">Gross margin</th><th class="num">Margin</th><th class="num">Expenses</th><th class="num">Operating profit</th></tr></thead><tbody id="dSales"></tbody></table></div></div>
   </div>
   <div class="grid2">
     <div class="card"><h2>Top SKUs, last 3 months</h2><div class="tbl-wrap"><table><thead><tr><th>SKU</th><th>Product</th><th class="num">Qty</th><th class="num">Net sales</th><th class="num">Margin</th></tr></thead><tbody id="dTop"></tbody></table></div></div>
@@ -184,6 +186,67 @@
   <div class="toolbar"><label class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="apq" type="search" placeholder="Search supplier or PO" aria-label="Search supplier or PO"></label><label class="chk"><input type="checkbox" id="apOpenOnly" checked> Unpaid only</label></div>
   <div class="card flush"><div class="tbl-wrap bare"><table><thead><tr><th>PO</th><th>Supplier</th><th>Status</th><th>Currency</th><th class="num">Goods value</th><th class="num">Paid</th><th class="num">Outstanding</th><th class="num">≈ IDR</th><th></th></tr></thead><tbody id="apTbl"></tbody></table></div></div>
   <div class="card"><h2>Supplier payments</h2><div class="tbl-wrap"><table><thead><tr><th>Date</th><th>PO</th><th>Supplier</th><th class="num">Amount</th><th class="num">Rate</th><th class="num">IDR</th><th>Reference</th><th></th></tr></thead><tbody id="apPays"></tbody></table></div></div>
+</section>
+
+<!-- EXPENSES (owners) -->
+<section class="page" id="page-expenses" hidden data-need="admin">
+  <header class="page-head">
+    <div><h1>Expenses</h1><p class="sub">Running costs per entity, by the month they were paid. Salaries come in from Payroll automatically.</p></div>
+    <div class="row"><input type="month" id="exMonth" aria-label="Month"><select id="exLedger" aria-label="Entity"><option value="">Both entities</option><option value="PPN">PPN entity</option><option value="NON">Non-PPN entity</option></select></div>
+  </header>
+  <div class="kpis" id="exKpis"></div>
+  <div class="grid2">
+    <div class="card">
+      <div class="row"><h2 id="exFormTitle">Add an expense</h2><span class="spacer"></span><button type="button" class="btn small" id="exCancelEdit" hidden>Cancel edit</button></div>
+      <form id="exForm" class="fgrid" autocomplete="off">
+        <div class="field"><label for="exDate">Date paid</label><input id="exDate" type="date" required></div>
+        <div class="field"><label for="exEnt">Entity</label><select id="exEnt"><option value="PPN">PPN entity</option><option value="NON">Non-PPN entity</option></select></div>
+        <div class="field"><label for="exCat">Category</label><input id="exCat" list="exCatList" placeholder="e.g. Rent" required></div>
+        <div class="field"><label for="exAmt">Amount (Rp)</label><input id="exAmt" type="number" min="1" step="1" required></div>
+        <div class="field span2"><label for="exDesc">Description</label><input id="exDesc" placeholder="e.g. Shop rent Jl. Merdeka, October"></div>
+        <div class="field"><label for="exMethod">Paid by</label><select id="exMethod"><option value="transfer">Transfer</option><option value="cash">Cash</option><option value="giro">Giro / cheque</option><option value="other">Other</option></select></div>
+        <div class="field"><label class="chk" style="margin-top:26px"><input type="checkbox" id="exRec"> Repeats every month</label></div>
+        <div class="field full"><div class="err" id="exErr" role="alert"></div><div class="row"><button type="submit" class="btn primary" id="exSave">Add expense</button><span class="hint">Monthly costs like rent and internet: tick "repeats", then copy them into each new month with one click.</span></div></div>
+      </form>
+      <datalist id="exCatList"></datalist>
+    </div>
+    <div class="card"><div class="row"><h2>By category</h2><span class="spacer"></span><span class="hint" id="exCatNote"></span></div><div class="cat-bars" id="exCats"></div></div>
+  </div>
+  <div class="card flush">
+    <div class="row card-pad"><h2 id="exListTitle">Expenses</h2><span class="spacer"></span><button type="button" class="btn" id="exCopy">Copy recurring from last month</button></div>
+    <div class="tbl-wrap bare"><table><thead><tr><th>Date</th><th>Entity</th><th>Category</th><th>Description</th><th>Paid by</th><th class="num">Amount</th><th></th></tr></thead><tbody id="exTbl"></tbody></table></div>
+  </div>
+  <div class="card"><h2>Monthly history</h2><p class="hint">Click a month to open it. Salaries are included in each total.</p>
+    <div class="tbl-wrap"><table><thead><tr><th>Month</th><th class="num" id="exHPpn">PPN entity</th><th class="num" id="exHNon">Non-PPN entity</th><th class="num">of which salaries</th><th class="num">Total</th><th class="num">vs month before</th></tr></thead><tbody id="exHist"></tbody></table></div></div>
+</section>
+
+<!-- EMPLOYEES & PAYROLL (owners) -->
+<section class="page" id="page-employees" hidden data-need="admin">
+  <header class="page-head">
+    <div><h1>Employees</h1><p class="sub">Your people, their standard pay, and each month's salary payments.</p></div>
+    <button class="btn primary" id="empNew"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add employee</button>
+  </header>
+  <div class="kpis" id="empKpis"></div>
+  <div class="card">
+    <div class="toolbar">
+      <label class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="empQ" type="search" placeholder="Search name or position" aria-label="Search name or position"></label>
+      <label class="chk"><input type="checkbox" id="empInactive"> Show inactive</label>
+    </div>
+    <div class="tbl-wrap"><table><thead><tr><th>Name</th><th>Entity</th><th>Phone</th><th>Bank account</th><th>Started</th><th class="num">Base salary</th><th class="num">Allowance</th><th class="num">Monthly</th><th></th></tr></thead><tbody id="empTbl"></tbody></table></div>
+  </div>
+  <div class="card flush">
+    <div class="row card-pad wrap">
+      <h2>Payroll</h2><span class="spacer"></span>
+      <input type="month" id="prMonth" aria-label="Salary month">
+      <label class="inline-l">Pay date <input type="date" id="prDate" aria-label="Pay date"></label>
+      <select id="prMethod" aria-label="Paid by"><option value="transfer">Transfer</option><option value="cash">Cash</option><option value="giro">Giro / cheque</option><option value="other">Other</option></select>
+      <button type="button" class="btn primary" id="prRun">Pay everyone unpaid</button>
+    </div>
+    <div class="tbl-wrap bare"><table><thead><tr><th>Employee</th><th>Entity</th><th class="num">Base</th><th class="num">Allowance</th><th class="num">Bonus / overtime</th><th class="num">Deductions</th><th class="num">Net pay</th><th>Status</th></tr></thead><tbody id="prTbl"></tbody></table></div>
+    <p class="hint card-pad" id="prHint">Type bonus or deductions on a row and press Pay; "Pay everyone unpaid" pays the standard salary. Deductions (BPJS, PPh 21, advances) are entered by hand; the app doesn't calculate them.</p>
+  </div>
+  <div class="card"><h2>Payroll history</h2>
+    <div class="tbl-wrap"><table><thead><tr><th>Month</th><th class="num">People paid</th><th class="num" id="prHPpn">PPN entity</th><th class="num" id="prHNon">Non-PPN entity</th><th class="num">Total</th></tr></thead><tbody id="prHist"></tbody></table></div></div>
 </section>
 
 <!-- CONTACTS -->
@@ -316,7 +379,7 @@
     <div class="card">
       <h2>Export and backup</h2>
       <div class="row"><button class="btn" id="expAll"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Stock list</button><button class="btn" id="expAlerts"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Alerts</button><button class="btn primary" id="expBackup"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Full backup to Excel</button></div>
-      <p class="hint">The backup holds products, costs, contacts, invoices, receivables, purchase orders and all payments. Download one every month and keep it outside this app. (The <span class="mono">data</span> folder on the server is the complete copy.)</p>
+      <p class="hint">The backup holds products, costs, contacts, invoices, receivables, purchase orders, all payments, expenses, payroll and employees. Download one every month and keep it outside this app. (The <span class="mono">data</span> folder on the server is the complete copy.)</p>
       <h2 style="margin-top:8px">Example data</h2>
       <div class="row"><span class="hint grow">Products with SKUs starting <span class="mono">DEMO-</span>, and suppliers and customers named <span class="mono">[Demo]</span>, are examples (their orders and invoices are removed too).</span><button class="btn danger" id="clearDemo">Remove examples</button></div>
     </div>
@@ -466,6 +529,26 @@
     </div>
     <div class="row dlg-foot" id="invActions"></div>
   </div>
+</dialog>
+
+<dialog id="empDlg">
+  <form class="dlg" id="empForm" method="dialog">
+    <div class="dlg-head"><h2 id="empTitle">Add employee</h2><button type="button" class="icon-btn" id="empClose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+    <div class="fgrid">
+      <div class="field span2"><label for="emName">Full name</label><input id="emName" required maxlength="200"></div>
+      <div class="field"><label for="emPos">Position</label><input id="emPos" placeholder="e.g. Warehouse, Sales, Admin"></div>
+      <div class="field"><label for="emEnt">Employed by</label><select id="emEnt"><option value="PPN">PPN entity</option><option value="NON">Non-PPN entity</option></select></div>
+      <div class="field"><label for="emPhone">Phone / WhatsApp</label><input id="emPhone" inputmode="tel"></div>
+      <div class="field"><label for="emStart">Start date</label><input id="emStart" type="date"></div>
+      <div class="field"><label for="emBase">Base salary (Rp / month)</label><input id="emBase" type="number" min="0" step="1"></div>
+      <div class="field"><label for="emAllow">Fixed allowance (Rp / month)</label><input id="emAllow" type="number" min="0" step="1" placeholder="transport, meals"></div>
+      <div class="field full"><label for="emBank">Bank account</label><input id="emBank" placeholder="e.g. BCA 123-456-7890 a.n. Budi Santoso"></div>
+      <div class="field full"><label for="emNotes">Notes</label><textarea id="emNotes" rows="2"></textarea></div>
+      <div class="field full"><label class="chk"><input type="checkbox" id="emActive" checked> Active (included in payroll)</label></div>
+    </div>
+    <div class="err" id="emErr" role="alert"></div>
+    <div class="row dlg-foot"><button type="button" class="btn ghost-danger" id="emDel" hidden>Delete</button><span class="spacer"></span><button type="button" class="btn" id="emCancel">Cancel</button><button type="submit" class="btn primary" id="emSave">Save</button></div>
+  </form>
 </dialog>
 
 <dialog id="payDlg">

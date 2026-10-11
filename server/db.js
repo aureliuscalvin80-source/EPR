@@ -226,6 +226,57 @@ CREATE TABLE IF NOT EXISTS supplier_payments (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS supplier_payments_po ON supplier_payments (po_id);
+-- Running costs per entity, by the date they were paid. Salaries live in salary_payments, not here.
+CREATE TABLE IF NOT EXISTS expenses (
+  id          TEXT PRIMARY KEY,
+  ledger      TEXT NOT NULL CHECK (ledger IN ('PPN','NON')),
+  exp_date    TEXT NOT NULL,
+  category    TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  amount      REAL NOT NULL,
+  method      TEXT NOT NULL DEFAULT 'transfer',
+  recurring   INTEGER NOT NULL DEFAULT 0,
+  source_id   TEXT,
+  note        TEXT NOT NULL DEFAULT '',
+  created_by  TEXT NOT NULL DEFAULT '',
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS expenses_date ON expenses (exp_date);
+CREATE TABLE IF NOT EXISTS employees (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  position    TEXT NOT NULL DEFAULT '',
+  ledger      TEXT NOT NULL CHECK (ledger IN ('PPN','NON')),
+  phone       TEXT NOT NULL DEFAULT '',
+  bank        TEXT NOT NULL DEFAULT '',
+  start_date  TEXT NOT NULL DEFAULT '',
+  base_salary REAL NOT NULL DEFAULT 0,
+  allowance   REAL NOT NULL DEFAULT 0,
+  active      INTEGER NOT NULL DEFAULT 1,
+  notes       TEXT NOT NULL DEFAULT '',
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL
+);
+-- One salary payment per employee per month. Amounts are copied in, so a later raise doesn't change history.
+CREATE TABLE IF NOT EXISTS salary_payments (
+  id          TEXT PRIMARY KEY,
+  employee_id TEXT NOT NULL,
+  period      TEXT NOT NULL,
+  pay_date    TEXT NOT NULL,
+  ledger      TEXT NOT NULL,
+  name        TEXT NOT NULL,
+  base        REAL NOT NULL DEFAULT 0,
+  allowance   REAL NOT NULL DEFAULT 0,
+  bonus       REAL NOT NULL DEFAULT 0,
+  deduction   REAL NOT NULL DEFAULT 0,
+  net         REAL NOT NULL,
+  method      TEXT NOT NULL DEFAULT 'transfer',
+  note        TEXT NOT NULL DEFAULT '',
+  created_by  TEXT NOT NULL DEFAULT '',
+  created_at  INTEGER NOT NULL,
+  UNIQUE (employee_id, period)
+);
 `;
 
 /** Columns added after the first release; ALTER them into databases created before. */

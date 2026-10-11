@@ -8,7 +8,7 @@ import { lineAmount, invoiceTotals, lineNets, paymentState, terbilang, invoiceMe
 
 /* ---------- state ---------- */
 const S = {
-  items: {}, rules: [], suppliers: [], customers: [], pos: [], supplierPays: [], invoices: [], invDem: undefined, users: [], me: null, owner: false,
+  items: {}, rules: [], suppliers: [], customers: [], pos: [], supplierPays: [], expenses: [], employees: [], salaries: [], invoices: [], invDem: undefined, users: [], me: null, owner: false,
   files: [], hist: [], dem: {}, moves: [], settings: { ...DEFAULT_SETTINGS, ent: {} }, usage: { bytes: 0 },
   derived: new Map(), alerts: [], colRules: [], dstats: new Map(), win: { PPN: [], NON: [] },
   sort: { k: "sku", d: 1 }, page: 0, per: 100, editKey: null, editRule: null, loaded: false,
@@ -16,7 +16,7 @@ const S = {
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 const nf = (n) => n.toLocaleString("id-ID");
-const plural = (n, w) => `${nf(n)} ${w}${n === 1 ? "" : "s"}`;
+const plural = (n, w, pl = w + "s") => `${nf(n)} ${n === 1 ? w : pl}`;
 const initial = (name) => (String(name).match(/[\p{L}\p{N}]/u) || ["?"])[0].toUpperCase();
 const entName = (t) => S.settings.ent?.[t]?.name || taxLabel(t);
 const ledgerChip = (tax) => `<span class="chip ${tax === "PPN" ? "ppn" : "non"}">${taxLabel(tax)}</span>`;
@@ -96,7 +96,7 @@ async function load() {
   const st = await api.state();
   Object.assign(S, {
     items: st.items, rules: st.rules, files: st.files, hist: st.history, dem: st.dem, moves: st.moves, settings: st.settings, usage: st.usage,
-    suppliers: st.suppliers, customers: st.customers, pos: st.pos, supplierPays: st.supplierPays, invoices: st.invoices, invDem: st.invDem, owner: st.owner,
+    suppliers: st.suppliers, customers: st.customers, pos: st.pos, supplierPays: st.supplierPays, expenses: st.expenses || [], employees: st.employees || [], salaries: st.salaries || [], invoices: st.invoices, invDem: st.invDem, owner: st.owner,
   });
   if (!S.loaded || !document.activeElement?.closest("#page-settings")) fillSettings();
   S.loaded = true;
@@ -130,14 +130,14 @@ function renderAll() {
   renderSales();
   renderContacts();
   fillSupplierSelects();
-  if (isOwner()) { renderPos(); renderAR(); renderAP(); renderDash(); }
+  if (isOwner()) { renderPos(); renderAR(); renderAP(); renderExpenses(); renderEmployees(); renderDash(); }
   refreshPoDialog();
   refreshInvDialog();
   $("#ledgerCount").textContent = plural(Object.keys(S.items).length, "item");
 }
 
 /* ---------- navigation ---------- */
-const OWNER_TABS = ["dash", "po", "ar", "ap", "settings", "users"];
+const OWNER_TABS = ["dash", "po", "ar", "ap", "expenses", "employees", "settings", "users"];
 function showTab(t) {
   if (!$("#page-" + t) || (OWNER_TABS.includes(t) && !isOwner())) t = "inventory";
   $$(".nav-item").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === t)));
@@ -1400,7 +1400,7 @@ function renderDash() {
     ["non", "Goods on the way", fmtRp(transit), "open POs, landed value"],
     ["warn", "Receivables", fmtRp(arOut), arOv ? `${fmtRp(arOv)} overdue` : "nothing overdue"],
     ["crit", "Owed to suppliers", fmtRp(apOut), "unpaid, at each PO's rate"],
-    ["", "Sales this month", fmtRp(thisM.rev), thisM.rev ? `margin ${(((thisM.rev - thisM.cogs) / thisM.rev) * 100).toFixed(1)}%` : "no invoices yet"],
+    ["", "Sales this month", fmtRp(thisM.rev), (thisM.rev ? `margin ${(((thisM.rev - thisM.cogs) / thisM.rev) * 100).toFixed(1)}%` : "no invoices yet") + ` · after expenses ${fmtRp(thisM.rev - thisM.cogs - monthCosts(cy, false).total)}`],
   ]);
   const bk = [["Not yet due", (e) => e.od <= 0], ["1–30 days late", (e) => e.od > 0 && e.od <= 30], ["31–60 days", (e) => e.od > 30 && e.od <= 60], ["61–90 days", (e) => e.od > 60 && e.od <= 90], ["Over 90 days", (e) => e.od > 90]]
     .map(([l, f], i) => ({ l, i, v: ar.filter(f).reduce((a, e) => a + e.out, 0), n: ar.filter(f).length }));
@@ -1411,8 +1411,9 @@ function renderDash() {
   const months = [0, -1, -2].map((k) => ymAdd(cy, k));
   const srows = [];
   for (const ym of months) for (const L of ["PPN", "NON"]) {
-    const m = monthOf(ym, L);
-    if (m.rev || ym === cy) srows.push(`<tr><td>${ymLabel(ym)}</td><td>${ledgerChip(L)}</td><td class="num">${fmtRp(m.rev)}</td><td class="num">${fmtRp(m.rev - m.cogs)}</td><td class="num">${m.rev ? (((m.rev - m.cogs) / m.rev) * 100).toFixed(1) + "%" : "—"}</td></tr>`);
+    const m = monthOf(ym, L), ex = monthCosts(ym, false).byL[L], op = m.rev - m.cogs - ex;
+    if (m.rev || ex || ym === cy) srows.push(`<tr><td>${ymLabel(ym)}</td><td>${ledgerChip(L)}</td><td class="num">${fmtRp(m.rev)}</td><td class="num">${fmtRp(m.rev - m.cogs)}</td><td class="num">${m.rev ? (((m.rev - m.cogs) / m.rev) * 100).toFixed(1) + "%" : "—"}</td>
+      <td class="num">${ex ? fmtRp(ex) : dash}</td><td class="num"><strong class="${op < 0 ? "err" : ""}">${fmtRp(op)}</strong></td></tr>`);
   }
   $("#dSales").innerHTML = srows.join("");
   const from = months[2] + "-01";
@@ -1435,6 +1436,267 @@ function renderDash() {
     : `<tr><td colspan="5"><div class="empty">${Object.keys(S.dem).length || S.invDem?.months?.PPN?.length ? "Every SKU in stock sold at least once in the last 6 months." : "Needs at least 6 months of sales history. Upload your yearly workbook under Files."}</div></td></tr>`;
 }
 $("#dCut").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-key]"); if (tr) openItem(tr.dataset.key); });
+
+/* ---------- expenses (owners) ---------- */
+const METHOD_L = { transfer: "Transfer", cash: "Cash", giro: "Giro / cheque", other: "Other" };
+const EX_CATS = ["Rent", "Electricity", "Water", "Internet & phone", "Fuel & transport", "Shipping & courier", "Office supplies", "Repairs & maintenance", "Bank fees", "Taxes & permits", "Meals & entertainment", "Marketing", "Security & cleaning", "Other"];
+const exLedgerOk = (L) => !$("#exLedger").value || $("#exLedger").value === L;
+/** Expenses and salaries for one month, respecting the entity filter. */
+function monthCosts(ym, filter = true) {
+  const ok = (L) => !filter || exLedgerOk(L);
+  const ex = S.expenses.filter((e) => e.date.startsWith(ym) && ok(e.ledger));
+  const sal = S.salaries.filter((p) => p.period === ym && ok(p.ledger));
+  const byL = { PPN: 0, NON: 0 };
+  for (const e of ex) byL[e.ledger] += e.amount;
+  for (const p of sal) byL[p.ledger] += p.net;
+  const salTotal = sal.reduce((a, p) => a + p.net, 0);
+  return { ex, sal, byL, salTotal, total: byL.PPN + byL.NON };
+}
+let exEdit = null;
+function exMonth() {
+  if (!$("#exMonth").value) $("#exMonth").value = today().slice(0, 7);
+  return $("#exMonth").value;
+}
+function resetExForm() {
+  exEdit = null;
+  $("#exForm").reset();
+  const ym = exMonth();
+  $("#exDate").value = ym === today().slice(0, 7) ? today() : ym + "-01";
+  $("#exEnt").value = $("#exLedger").value || "PPN";
+  $("#exFormTitle").textContent = "Add an expense";
+  $("#exSave").textContent = "Add expense";
+  $("#exCancelEdit").hidden = true;
+  $("#exErr").textContent = "";
+}
+function renderExpenses() {
+  const ym = exMonth(), cur = monthCosts(ym), prev = monthCosts(ymAdd(ym, -1));
+  const delta = prev.total ? ((cur.total - prev.total) / prev.total) * 100 : null;
+  const ent = $("#exLedger").value;
+  $("#exKpis").innerHTML = kpiHtml([
+    ["crit", `Total ${ymLabel(ym)}`, fmtRp(cur.total), delta == null ? "no costs the month before" : `${delta >= 0 ? "+" : ""}${delta.toFixed(1)}% vs ${ymLabel(ymAdd(ym, -1))}`],
+    ["", "Salaries", fmtRp(cur.salTotal), plural(cur.sal.length, "person", "people") + " paid"],
+    ["", "Other expenses", fmtRp(cur.total - cur.salTotal), plural(cur.ex.length, "entry", "entries")],
+    ...(ent ? [] : [["ppn", entName("PPN"), fmtRp(cur.byL.PPN), "this month"], ["non", entName("NON"), fmtRp(cur.byL.NON), "this month"]]),
+  ]);
+  // categories
+  const cats = new Map();
+  for (const e of cur.ex) cats.set(e.category, (cats.get(e.category) || 0) + e.amount);
+  const rows = [...cats].sort((a, b) => b[1] - a[1]);
+  if (cur.salTotal) rows.unshift(["Salaries", cur.salTotal, true]);
+  const mx = Math.max(1, ...rows.map((r) => r[1]));
+  $("#exCatNote").textContent = ymLabel(ym);
+  $("#exCats").innerHTML = rows.length ? rows.map(([c, v, sal]) => `<div class="cat-row${sal ? " sal" : ""}"><span>${esc(c)}</span><span class="bar"><i style="width:${((v / mx) * 100).toFixed(1)}%"></i></span><span class="amt">${fmtRp(v)}<span class="pct">${((v / cur.total) * 100).toFixed(0)}%</span></span></div>`).join("")
+    : '<div class="empty">Nothing recorded for this month yet.</div>';
+  // list
+  $("#exListTitle").textContent = `Expenses · ${ymLabel(ym)}`;
+  const recPrev = S.expenses.some((e) => e.recurring && e.date.startsWith(ymAdd(ym, -1)) && !S.expenses.some((x) => x.sourceId === e.id && x.date.startsWith(ym)));
+  $("#exCopy").disabled = !recPrev;
+  $("#exCopy").title = recPrev ? "" : "No repeating expenses from last month left to copy";
+  const salRows = cur.sal.length ? `<tr class="muted-row"><td>${ymdLabel(cur.sal.map((p) => p.date).sort().pop())}</td><td>${[...new Set(cur.sal.map((p) => p.ledger))].map(ledgerChip).join(" ")}</td><td>Salaries</td>
+    <td class="name">${plural(cur.sal.length, "employee")} · <button type="button" class="linklike" data-gopay="1">see Payroll</button></td><td></td><td class="num">${fmtRp(cur.salTotal)}</td><td></td></tr>` : "";
+  $("#exTbl").innerHTML = cur.ex.length || salRows ? salRows + cur.ex.map((e) => `<tr><td>${ymdLabel(e.date)}</td><td>${ledgerChip(e.ledger)}</td><td>${esc(e.category)}${e.recurring ? ' <span class="chip unit" title="Repeats every month">monthly</span>' : ""}</td>
+      <td class="name">${esc(e.description)}${e.by ? `<div class="hint">${esc(e.by)}</div>` : ""}</td><td>${METHOD_L[e.method] || esc(e.method)}</td><td class="num">${fmtRp(e.amount)}</td>
+      <td><div class="row" style="flex-wrap:nowrap;gap:6px"><button class="btn small" data-exedit="${esc(e.id)}">Edit</button><button class="icon-btn" data-exdel="${esc(e.id)}" aria-label="Delete expense"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div></td></tr>`).join("")
+    : `<tr><td colspan="7"><div class="empty">No expenses in ${ymLabel(ym)}${ent ? " for " + esc(entName(ent)) : ""}.${recPrev ? " Last month had repeating costs: use “Copy recurring from last month”." : ""}</div></td></tr>`;
+  // history: the 12 months up to the later of this month and the one shown
+  const end = ym > today().slice(0, 7) ? ym : today().slice(0, 7);
+  const hist = [];
+  for (let k = 0; k < 12; k++) {
+    const m = ymAdd(end, -k), c = monthCosts(m), p = monthCosts(ymAdd(m, -1));
+    if (!c.total && m !== ym && k) continue;
+    const d = p.total ? ((c.total - p.total) / p.total) * 100 : null;
+    hist.push(`<tr data-ym="${m}" class="${m === ym ? "cur" : ""}"><td>${ymLabel(m)}</td><td class="num">${fmtRp(c.byL.PPN)}</td><td class="num">${fmtRp(c.byL.NON)}</td><td class="num">${fmtRp(c.salTotal)}</td>
+      <td class="num"><strong>${fmtRp(c.total)}</strong></td><td class="num">${d == null ? dash : `<span class="${d > 0 ? "up" : "down"}">${d > 0 ? "+" : ""}${d.toFixed(1)}%</span>`}</td></tr>`);
+  }
+  $("#exHist").innerHTML = hist.join("");
+  const cats2 = new Set([...EX_CATS, ...S.expenses.map((e) => e.category)]);
+  $("#exCatList").innerHTML = [...cats2].map((c) => `<option value="${esc(c)}">`).join("");
+  if (!exEdit && !$("#exDate").value) resetExForm();
+}
+$("#exMonth").onchange = () => { resetExForm(); renderExpenses(); };
+$("#exLedger").onchange = () => { if (!exEdit) $("#exEnt").value = $("#exLedger").value || $("#exEnt").value; renderExpenses(); };
+$("#exHist").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-ym]"); if (tr) { $("#exMonth").value = tr.dataset.ym; resetExForm(); renderExpenses(); } });
+$("#exCancelEdit").onclick = resetExForm;
+$("#exForm").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const body = { date: $("#exDate").value, ledger: $("#exEnt").value, category: $("#exCat").value, description: $("#exDesc").value, amount: $("#exAmt").value, method: $("#exMethod").value, recurring: $("#exRec").checked };
+  $("#exSave").disabled = true;
+  try {
+    if (exEdit) await api.expenseSave(exEdit, body); else await api.expenseCreate(body);
+    toast(exEdit ? "Expense updated" : `Added ${fmtRp(+body.amount)} · ${body.category}`);
+    const keepDate = body.date, keepEnt = body.ledger;
+    if (body.date.slice(0, 7) !== exMonth()) $("#exMonth").value = body.date.slice(0, 7);
+    resetExForm();
+    $("#exDate").value = keepDate; // entering several receipts from the same day is common
+    $("#exEnt").value = keepEnt;
+    await load();
+    $("#exCat").focus();
+  } catch (e) { $("#exErr").textContent = e.message; } finally { $("#exSave").disabled = false; }
+});
+$("#exTbl").addEventListener("click", async (e) => {
+  if (e.target.closest("[data-gopay]")) { $("#prMonth").value = exMonth(); showTab("employees"); renderPayroll(); return; }
+  const ed = e.target.closest("[data-exedit]");
+  if (ed) {
+    const x = S.expenses.find((v) => v.id === ed.dataset.exedit);
+    if (!x) return;
+    exEdit = x.id;
+    Object.entries({ exDate: x.date, exEnt: x.ledger, exCat: x.category, exDesc: x.description, exAmt: x.amount, exMethod: x.method }).forEach(([k, v]) => ($("#" + k).value = v));
+    $("#exRec").checked = x.recurring;
+    $("#exFormTitle").textContent = "Edit expense";
+    $("#exSave").textContent = "Save changes";
+    $("#exCancelEdit").hidden = false;
+    $("#exErr").textContent = "";
+    $("#exForm").scrollIntoView({ behavior: "smooth", block: "center" });
+    $("#exAmt").focus();
+    return;
+  }
+  const d = e.target.closest("[data-exdel]");
+  if (d) {
+    if (d.dataset.confirm !== "1") { d.dataset.confirm = "1"; d.title = "Click again to delete"; d.style.color = "var(--crit)"; return; }
+    try { await api.expenseDelete(d.dataset.exdel); if (exEdit === d.dataset.exdel) resetExForm(); toast("Expense deleted"); await load(); } catch (er) { handleErr(er); }
+  }
+});
+$("#exCopy").onclick = async () => {
+  try {
+    const r = await api.expenseCopyRecurring(exMonth());
+    toast(r.copied ? `Copied ${plural(r.copied, "repeating expense")} into ${ymLabel(exMonth())}. Check the amounts.` : "Nothing new to copy.");
+    await load();
+  } catch (e) { handleErr(e); }
+};
+
+/* ---------- employees & payroll (owners) ---------- */
+let emEdit = null;
+const monthlyPay = (e) => (+e.baseSalary || 0) + (+e.allowance || 0);
+function renderEmployees() {
+  const q = $("#empQ").value.trim().toLowerCase(), showOff = $("#empInactive").checked;
+  const act = S.employees.filter((e) => e.active);
+  const cy = today().slice(0, 7), paidNow = S.salaries.filter((p) => p.period === cy);
+  $("#empKpis").innerHTML = kpiHtml([
+    ["", "Active employees", nf(act.length), `${entName("PPN")} ${act.filter((e) => e.ledger === "PPN").length} · ${entName("NON")} ${act.filter((e) => e.ledger === "NON").length}`],
+    ["crit", "Standard monthly payroll", fmtRp(act.reduce((a, e) => a + monthlyPay(e), 0)), "base + fixed allowances"],
+    ["", `Paid for ${ymLabel(cy)}`, fmtRp(paidNow.reduce((a, p) => a + p.net, 0)), `${paidNow.length} of ${act.length} people`],
+  ]);
+  const rows = S.employees.filter((e) => (showOff || e.active) && (!q || [e.name, e.position, e.phone].join(" ").toLowerCase().includes(q)));
+  $("#empTbl").innerHTML = rows.length ? rows.map((e) => `<tr class="${e.active ? "" : "muted-row"}"><td><strong>${esc(e.name)}</strong>${e.position ? `<div class="hint">${esc(e.position)}</div>` : ""}</td><td>${ledgerChip(e.ledger)}</td>
+      <td>${e.phone ? esc(e.phone) : dash}</td><td class="name">${e.bank ? esc(e.bank) : dash}</td><td>${e.startDate ? ymdLabel(e.startDate) : dash}</td>
+      <td class="num">${fmtRp(e.baseSalary)}</td><td class="num">${e.allowance ? fmtRp(e.allowance) : dash}</td><td class="num"><strong>${fmtRp(monthlyPay(e))}</strong></td>
+      <td>${e.active ? "" : '<span class="muted">Inactive</span> '}<button class="btn small" data-emedit="${esc(e.id)}">Edit</button></td></tr>`).join("")
+    : `<tr><td colspan="9"><div class="empty">${S.employees.length ? "No employees match." : "No employees yet. Add your team with “Add employee”."}</div></td></tr>`;
+  renderPayroll();
+}
+const prDraft = new Map(); // employeeId → { bonus, deduction } typed but not yet paid
+function renderPayroll() {
+  if (!$("#prMonth").value) $("#prMonth").value = today().slice(0, 7);
+  if (!$("#prDate").value) $("#prDate").value = today();
+  const ym = $("#prMonth").value;
+  const paid = S.salaries.filter((p) => p.period === ym);
+  const paidIds = new Set(paid.map((p) => p.employeeId));
+  const unpaid = S.employees.filter((e) => e.active && !paidIds.has(e.id));
+  const rows = [
+    ...paid.map((p) => `<tr><td><strong>${esc(p.name)}</strong></td><td>${ledgerChip(p.ledger)}</td><td class="num">${fmtRp(p.base)}</td><td class="num">${p.allowance ? fmtRp(p.allowance) : dash}</td>
+      <td class="num">${p.bonus ? fmtRp(p.bonus) : dash}</td><td class="num">${p.deduction ? "−" + fmtRp(p.deduction) : dash}</td><td class="num"><strong>${fmtRp(p.net)}</strong></td>
+      <td><div class="row" style="flex-wrap:nowrap;gap:6px"><span class="okmsg">Paid ${ymdLabel(p.date)}</span><span class="hint">${METHOD_L[p.method] || ""}</span>
+      <button class="icon-btn" data-prdel="${esc(p.id)}" aria-label="Remove this payment" title="Remove this payment"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div></td></tr>`),
+    ...unpaid.map((e) => {
+      const d = prDraft.get(e.id) || { bonus: 0, deduction: 0 };
+      const net = monthlyPay(e) + (+d.bonus || 0) - (+d.deduction || 0);
+      return `<tr data-emp="${esc(e.id)}"><td><strong>${esc(e.name)}</strong>${e.position ? `<div class="hint">${esc(e.position)}</div>` : ""}</td><td>${ledgerChip(e.ledger)}</td>
+        <td class="num">${fmtRp(e.baseSalary)}</td><td class="num">${e.allowance ? fmtRp(e.allowance) : dash}</td>
+        <td class="num"><input type="number" min="0" step="1" value="${d.bonus || ""}" placeholder="0" data-prf="bonus" aria-label="Bonus for ${esc(e.name)}"></td>
+        <td class="num"><input type="number" min="0" step="1" value="${d.deduction || ""}" placeholder="0" data-prf="deduction" aria-label="Deductions for ${esc(e.name)}"></td>
+        <td class="num"><strong class="${net < 0 ? "err" : ""}">${fmtRp(net)}</strong></td>
+        <td><button class="btn small primary" data-prpay="${esc(e.id)}" ${monthlyPay(e) > 0 ? "" : 'disabled title="Set a base salary first"'}>Pay</button></td></tr>`;
+    }),
+  ];
+  patchRows($("#prTbl"), rows.length ? rows.join("") : `<tr><td colspan="8"><div class="empty">${S.employees.length ? "No active employees." : "Add employees first."}</div></td></tr>`);
+  const total = paid.reduce((a, p) => a + p.net, 0);
+  $("#prRun").disabled = !unpaid.some((e) => monthlyPay(e) > 0);
+  $("#prRun").dataset.confirm = "";
+  $("#prRun").textContent = unpaid.length ? `Pay ${plural(unpaid.length, "person", "people")} unpaid` : "Everyone is paid";
+  $("#prHint").innerHTML = `${ymLabel(ym)}: ${fmtRp(total)} paid to ${plural(paid.length, "person", "people")}. Type bonus or deductions on a row and press Pay; the button above pays the standard salary. Deductions (BPJS, PPh 21, advances) are entered by hand; the app doesn't calculate them.`;
+  // history
+  const months = [...new Set(S.salaries.map((p) => p.period))].sort().reverse().slice(0, 12);
+  $("#prHist").innerHTML = months.length ? months.map((m) => {
+    const ps = S.salaries.filter((p) => p.period === m), by = (L) => ps.filter((p) => p.ledger === L).reduce((a, p) => a + p.net, 0);
+    return `<tr data-ym="${m}" class="${m === ym ? "cur" : ""}"><td>${ymLabel(m)}</td><td class="num">${ps.length}</td><td class="num">${fmtRp(by("PPN"))}</td><td class="num">${fmtRp(by("NON"))}</td><td class="num"><strong>${fmtRp(by("PPN") + by("NON"))}</strong></td></tr>`;
+  }).join("") : `<tr><td colspan="5"><div class="empty">No salaries paid yet.</div></td></tr>`;
+}
+$("#empQ").addEventListener("input", renderEmployees);
+$("#empInactive").onchange = renderEmployees;
+$("#prMonth").onchange = () => { prDraft.clear(); renderPayroll(); };
+$("#prHist").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-ym]"); if (tr) { $("#prMonth").value = tr.dataset.ym; prDraft.clear(); renderPayroll(); } });
+$("#prTbl").addEventListener("change", (e) => {
+  const t = e.target, tr = t.closest("tr[data-emp]");
+  if (!t.dataset.prf || !tr) return;
+  const d = prDraft.get(tr.dataset.emp) || { bonus: 0, deduction: 0 };
+  d[t.dataset.prf] = Math.max(0, +t.value || 0);
+  prDraft.set(tr.dataset.emp, d);
+  later(renderPayroll);
+});
+$("#prTbl").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-prpay]");
+  if (b) {
+    const id = b.dataset.prpay, tr = b.closest("tr");
+    const d = { bonus: +tr.querySelector('[data-prf="bonus"]').value || 0, deduction: +tr.querySelector('[data-prf="deduction"]').value || 0 };
+    b.disabled = true;
+    try {
+      await api.salaryPay({ employeeId: id, period: $("#prMonth").value, date: $("#prDate").value, method: $("#prMethod").value, ...d });
+      prDraft.delete(id);
+      toast(`Salary paid · ${S.employees.find((x) => x.id === id)?.name || ""}`);
+      await load();
+    } catch (er) { handleErr(er); b.disabled = false; }
+    return;
+  }
+  const x = e.target.closest("[data-prdel]");
+  if (x) {
+    if (x.dataset.confirm !== "1") { x.dataset.confirm = "1"; x.title = "Click again to remove this payment"; x.style.color = "var(--crit)"; return; }
+    try { await api.salaryDelete(x.dataset.prdel); toast("Salary payment removed"); await load(); } catch (er) { handleErr(er); }
+  }
+});
+$("#prRun").onclick = async () => {
+  const b = $("#prRun"), ym = $("#prMonth").value;
+  if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = `Confirm: pay standard salaries for ${ymLabel(ym)}`; return; }
+  b.dataset.confirm = "";
+  b.disabled = true;
+  try {
+    const r = await api.payrollRun(ym, $("#prDate").value, $("#prMethod").value);
+    toast(`Paid ${plural(r.paid, "person", "people")} · ${fmtRp(r.total)}`);
+    await load();
+  } catch (e) { handleErr(e); renderPayroll(); }
+};
+function openEmployee(id) {
+  emEdit = id;
+  const e = id ? S.employees.find((x) => x.id === id) : { name: "", position: "", ledger: "PPN", phone: "", bank: "", startDate: "", baseSalary: "", allowance: "", active: true, notes: "" };
+  $("#empTitle").textContent = id ? "Edit employee" : "Add employee";
+  Object.entries({ emName: e.name, emPos: e.position, emEnt: e.ledger, emPhone: e.phone, emBank: e.bank, emStart: e.startDate, emBase: e.baseSalary, emAllow: e.allowance || "", emNotes: e.notes }).forEach(([k, v]) => ($("#" + k).value = v ?? ""));
+  $("#emActive").checked = e.active;
+  $("#emErr").textContent = "";
+  const del = $("#emDel");
+  del.hidden = !id;
+  del.dataset.confirm = "";
+  del.textContent = "Delete";
+  $("#empDlg").showModal();
+}
+$("#empNew").onclick = () => openEmployee(null);
+$("#empTbl").addEventListener("click", (e) => { const b = e.target.closest("[data-emedit]"); if (b) openEmployee(b.dataset.emedit); });
+$("#emCancel").onclick = $("#empClose").onclick = () => $("#empDlg").close();
+$("#empForm").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const body = { name: $("#emName").value, position: $("#emPos").value, ledger: $("#emEnt").value, phone: $("#emPhone").value, bank: $("#emBank").value, startDate: $("#emStart").value,
+    baseSalary: $("#emBase").value, allowance: $("#emAllow").value, notes: $("#emNotes").value, active: $("#emActive").checked };
+  $("#emSave").disabled = true;
+  try {
+    if (emEdit) await api.employeeSave(emEdit, body); else await api.employeeCreate(body);
+    $("#empDlg").close();
+    toast("Employee saved");
+    await load();
+  } catch (e) { $("#emErr").textContent = e.message; } finally { $("#emSave").disabled = false; }
+});
+$("#emDel").onclick = async () => {
+  const b = $("#emDel");
+  if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = "Confirm: delete"; return; }
+  try { await api.employeeDelete(emEdit); $("#empDlg").close(); toast("Employee deleted"); await load(); } catch (e) { $("#emErr").textContent = e.message; }
+};
 
 /* ---------- formulas, files & coverage rendering ---------- */
 function renderRules() {
@@ -1827,9 +2089,11 @@ function fillEntityLabels() {
   const set = (sel, txt) => { const o = $(`${sel} option[value="${txt[0]}"]`); if (o) o.textContent = txt[1]; };
   for (const t of ["PPN", "NON"]) {
     const n = entName(t);
-    for (const sel of ["#invNewTax", "#abLedger", "#pLedger", "#impTax"]) set(sel, [t, n]);
-    for (const sel of ["#sLedger", "#fTax"]) set(sel, [t, `${n} only`]);
+    for (const sel of ["#invNewTax", "#abLedger", "#pLedger", "#impTax", "#exEnt", "#emEnt"]) set(sel, [t, n]);
+    for (const sel of ["#sLedger", "#fTax", "#exLedger"]) set(sel, [t, `${n} only`]);
   }
+  for (const id of ["#exHPpn", "#prHPpn"]) $(id).textContent = entName("PPN");
+  for (const id of ["#exHNon", "#prHNon"]) $(id).textContent = entName("NON");
 }
 $("#stInvSave").onclick = async () => {
   const ent = {};
@@ -1918,6 +2182,12 @@ $("#expBackup").onclick = async () => {
         return { PO: l.po_number, "Order date": p.order_date, Status: PO_ST[p.status] || p.status, Entity: ent(p.ledger), Supplier: sup.get(p.supplier_id) || "", Currency: p.currency, Rate: p.fx, SKU: l.sku, Name: l.name, Qty: l.qty, Received: l.received, "Unit price": l.price, "Landed unit (Rp)": landed(p, l) };
       }),
       "AP payments": d.supplierPays.map((p) => ({ PO: p.po_number, Date: p.pay_date, Amount: p.amount, Currency: p.currency, Rate: p.fx, "Amount (Rp)": p.idr, Method: p.method, Note: p.note, By: p.created_by })),
+      Expenses: [
+        ...d.expenses.map((e) => ({ Month: e.exp_date.slice(0, 7), Date: e.exp_date, Entity: ent(e.ledger), Category: e.category, Description: e.description, Amount: e.amount, "Paid by": e.method, Monthly: e.recurring ? "yes" : "", By: e.created_by })),
+        ...d.salaries.map((p) => ({ Month: p.period, Date: p.pay_date, Entity: ent(p.ledger), Category: "Salaries", Description: p.name, Amount: p.net, "Paid by": p.method, Monthly: "", By: p.created_by })),
+      ].sort((a, b) => (a.Date < b.Date ? -1 : a.Date > b.Date ? 1 : 0)),
+      Payroll: d.salaries.map((p) => ({ Month: p.period, "Pay date": p.pay_date, Employee: p.name, Entity: ent(p.ledger), Base: p.base, Allowance: p.allowance, "Bonus / overtime": p.bonus, Deductions: p.deduction, "Net pay": p.net, "Paid by": p.method, Note: p.note })),
+      Employees: d.employees.map((e) => ({ Name: e.name, Position: e.position, Entity: ent(e.ledger), Phone: e.phone, "Bank account": e.bank, Started: e.start_date, "Base salary": e.base_salary, Allowance: e.allowance, Active: e.active ? "yes" : "no", Notes: e.notes })),
       "Stock moves": d.moves.map((m) => ({ Time: tsLabel(m.t), SKU: m.sku, Entity: ent(m.tax), Type: m.type, Qty: m.qty, Note: m.note, By: m.user_name || "" })),
     };
     const wb = XLSX.utils.book_new();

@@ -402,3 +402,27 @@ dialog::backdrop { background: rgba(30, 36, 51, 0.28); backdrop-filter: blur(3px
 #arCustTbl tbody tr, #dCutTbl tbody tr, #sTbl tbody tr, #cTblWrap tbody tr { cursor: pointer; }
 #arCustTbl tbody tr:hover, #dCutTbl tbody tr:hover, #sTbl tbody tr:hover, #cTblWrap tbody tr:hover { background: var(--hover); }
 @media (max-width: 640px) { .ag-row { grid-template-columns: 84px 1fr 104px; } }
+
+/* ---------- expenses & payroll ---------- */
+.card-pad { padding: 16px 20px; }
+.row.card-pad { border-bottom: 1px solid var(--line); }
+p.card-pad { border-top: 1px solid var(--line); }
+.inline-l { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.cat-bars { display: flex; flex-direction: column; gap: 10px; }
+.cat-row { display: grid; grid-template-columns: minmax(90px, 1.2fr) 2fr auto; gap: 12px; align-items: center; font-size: 14px; }
+.cat-row .bar { height: 8px; border-radius: 999px; background: #eef0f5; overflow: hidden; }
+.cat-row .bar i { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+.cat-row.sal .bar i { background: #22a06b; }
+.cat-row .amt { font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; }
+.cat-row .pct { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 6px; }
+#exHist tr, #prHist tr { cursor: pointer; }
+#exHist tr.cur td, #prHist tr.cur td { background: var(--accent-soft); }
+#prTbl input { width: 120px; text-align: right; }
+.up { color: var(--crit); }
+.down { color: #22a06b; }
+@media (max-width: 720px) {
+  .cat-row { grid-template-columns: 1fr auto; }
+  .cat-row .bar { grid-column: 1 / -1; order: 3; }
+  .inline-l { width: 100%; }
+}
+.muted-row td { color: var(--muted); }
