@@ -70,7 +70,24 @@ function setHtml(el, html) {
  * Updates an editable table body cell by cell. Only cells whose markup changed are replaced, so the input the user is
  * clicking into stays in place while the line they just left is recalculated.
  */
-function patchRows(tbody, html) { patchKids(tbody, html, "tbody", (old, tr) => old.cells.length === tr.cells.length && patchKids(old, [...tr.cells])); }
+function patchRows(tbody, html) {
+  const cells = (old, tr) => old.cells.length === tr.cells.length && patchKids(old, [...tr.cells]);
+  const tpl = document.createElement("tbody");
+  tpl.innerHTML = html;
+  const next = [...tpl.children], cur = [...tbody.children];
+  // Rows that carry data-key are matched by key, so a row dropping out (e.g. filtered away after an edit) doesn't
+  // shift every row below it and replace the input the user has already moved to.
+  if (!next.length || !cur.length || ![...next, ...cur].every((r) => r.dataset.key)) return patchKids(tbody, next, "tbody", cells);
+  const want = new Set(next.map((r) => r.dataset.key));
+  cur.filter((r) => !want.has(r.dataset.key)).forEach((r) => r.remove());
+  next.forEach((tr, i) => {
+    const old = tbody.children[i];
+    if (old?.dataset.key === tr.dataset.key) {
+      if (old.outerHTML !== tr.outerHTML && !(old.className === tr.className && cells(old, tr))) old.replaceWith(tr);
+    } else tbody.insertBefore(tr, old || null);
+  });
+  while (tbody.children.length > next.length) tbody.lastElementChild.remove();
+}
 /** Replaces only the children of el whose markup changed; `deeper` may patch a changed child in place instead. */
 function patchKids(el, html, tag = "div", deeper = () => false) {
   let next = html;
@@ -176,6 +193,7 @@ function invRows() {
     if (fa === "crit" && d?.sev !== "crit") return false;
     if (fa === "zero" && (+it.qty || 0) > 0) return false;
     if (fa === "onorder" && !(+it.onOrder > 0)) return false;
+    if (fa === "noprice" && +it.sellPrice > 0) return false;
     if (q && !(it.sku.toLowerCase().includes(q) || String(it.name || "").toLowerCase().includes(q) || (supplierOf(it)?.company || "").toLowerCase().includes(q))) return false;
     return true;
   });
@@ -194,7 +212,7 @@ function invRows() {
   return rows;
 }
 function renderInv() {
-  const cols = [["sku", "SKU"], ["name", "Product"], ["tax", "Ledger"], ["unit", "Unit"], ["qty", "On hand", "num"], ["onOrder", "On order", "num"], ["sellPrice", "Price", "num"], ["v:price_incl", "Incl. PPN", "num"]];
+  const cols = [["sku", "SKU"], ["name", "Product"], ["tax", "Ledger"], ["unit", "Unit"], ["qty", "On hand", "num"], ["onOrder", "On order", "num"], ["sellPrice", "Sell price", "num"], ["v:price_incl", "Incl. PPN", "num"]];
   if (isOwner()) cols.push(["v:cost", "Avg cost", "num"], ["v:margin_pct", "Margin", "num"], ["v:value", "Value at cost", "num"]);
   cols.push(["minStock", "Min", "num"], ["supplier", "Supplier"], ...S.colRules.map((r) => ["col:" + r.id, r.name, "num"]), ["alerts", "Alerts"]);
   $("#invTbl thead").innerHTML = "<tr>" + cols.map(([k, l, c]) =>
@@ -207,24 +225,25 @@ function renderInv() {
   }
   const rows = invRows();
   if (!rows.length) {
-    tb.innerHTML = `<tr><td colspan="${cols.length}"><div class="empty">No items match these filters.</div></td></tr>`;
+    tb.innerHTML = `<tr><td colspan="${cols.length}"><div class="empty">${$("#fAlert").value === "noprice" && !$("#q").value ? "Every product has a sell price. Invoices will fill them in." : "No items match these filters."}</div></td></tr>`;
     $("#pager").innerHTML = "";
     return;
   }
   const pages = Math.max(1, Math.ceil(rows.length / S.per));
   if (S.page >= pages) S.page = pages - 1;
-  tb.innerHTML = rows.slice(S.page * S.per, (S.page + 1) * S.per).map((it) => {
+  // Cell-by-cell, so the price box the user is tabbing into isn't replaced when the table refreshes after a save.
+  patchRows(tb, rows.slice(S.page * S.per, (S.page + 1) * S.per).map((it) => {
     const d = S.derived.get(it.key) || { vars: {}, cols: {}, alerts: [] };
     const v = d.vars;
     return `<tr data-key="${esc(it.key)}" class="${d.sev ? "sev-" + d.sev : ""}">
       <td class="sku">${esc(it.sku)}</td><td class="name">${esc(it.name)}</td><td>${ledgerChip(it.tax)}</td><td><span class="chip unit">${esc(it.unit)}</span></td>
       <td class="num"><span class="qty ${d.sev}">${fmtN(+it.qty || 0)}</span></td><td class="num">${+it.onOrder > 0 ? `<span class="qty-on">${fmtN(+it.onOrder)}</span>` : dash}</td>
-      <td class="num">${+it.sellPrice ? fmtRp(+it.sellPrice) : dash}</td><td class="num">${it.tax === "PPN" && +it.sellPrice ? fmtRp(v.price_incl) : dash}</td>
+      <td class="num">${canEdit() ? `<input class="sp-in${+it.sellPrice ? "" : " need"}" type="number" min="0" step="1" inputmode="numeric" value="${+it.sellPrice || ""}" placeholder="set price" data-sp="${esc(it.key)}" aria-label="Sell price for ${esc(it.sku)}">` : +it.sellPrice ? fmtRp(+it.sellPrice) : dash}</td><td class="num">${it.tax === "PPN" && +it.sellPrice ? fmtRp(v.price_incl) : dash}</td>
       ${isOwner() ? `<td class="num">${v.cost ? fmtRp(v.cost) : dash}</td><td class="num">${v.cost && v.price_excl ? `<span class="${v.margin_pct < 10 ? "err" : ""}">${v.margin_pct.toFixed(1)}%</span>` : dash}</td><td class="num">${v.value ? fmtRp(v.value) : dash}</td>` : ""}
       <td class="num">${it.minStock ? fmtN(+it.minStock) : dash}</td><td class="name">${esc(supplierOf(it)?.company || "") || dash}</td>
       ${S.colRules.map((r) => { const x = d.cols[r.id]; return `<td class="num">${x == null ? dash : Number.isNaN(x) ? '<span class="err">err</span>' : fmtN(x)}</td>`; }).join("")}
       <td><div class="chips">${d.alerts.map((r) => `<span class="chip ${r.severity}">${esc(r.name)}</span>`).join("")}</div></td></tr>`;
-  }).join("");
+  }).join(""));
   $("#pager").innerHTML = `<span class="hint">${nf(S.page * S.per + 1)}–${nf(Math.min(rows.length, (S.page + 1) * S.per))} of ${nf(rows.length)}</span>
     <button class="btn small" data-pg="-1" ${S.page <= 0 ? "disabled" : ""}>Previous</button>
     <button class="btn small" data-pg="1" ${S.page >= pages - 1 ? "disabled" : ""}>Next</button>`;
@@ -239,8 +258,32 @@ $("#invTbl").addEventListener("click", (e) => {
     renderInv();
     return;
   }
+  if (e.target.closest("[data-sp]")) return; // typing a price, not opening the product
   const tr = e.target.closest("tr[data-key]");
   if (tr) openItem(tr.dataset.key);
+});
+// Sell price straight in the table: saved when the box is left; Enter jumps to the next product's price.
+$("#invTbl").addEventListener("change", async (e) => {
+  const box = e.target.closest("[data-sp]");
+  if (!box) return;
+  const it = S.items[box.dataset.sp], v = box.value === "" ? 0 : Math.max(0, Math.round(+box.value || 0));
+  if (!it || v === (+it.sellPrice || 0)) return;
+  box.classList.add("saving");
+  try {
+    await api.setSellPrice(it.key, v);
+    it.sellPrice = v; // shown at once; the live update refreshes the rest
+    box.classList.toggle("need", !v);
+    toast(v ? `${it.sku}: sell price ${fmtRp(v)}` : `${it.sku}: sell price cleared`);
+  } catch (er) { handleErr(er); box.value = +it.sellPrice || ""; } finally { box.classList.remove("saving"); }
+});
+$("#invTbl").addEventListener("keydown", (e) => {
+  const box = e.target.closest("[data-sp]");
+  if (!box) return;
+  if (e.key === "Escape") { box.value = +S.items[box.dataset.sp]?.sellPrice || ""; box.blur(); return; }
+  if (e.key !== "Enter") return;
+  e.preventDefault();
+  const all = $$("#invTbl [data-sp]"), next = all[all.indexOf(box) + (e.shiftKey ? -1 : 1)];
+  if (next) { next.focus(); next.select(); } else box.blur();
 });
 $("#pager").addEventListener("click", (e) => {
   const b = e.target.closest("[data-pg]");

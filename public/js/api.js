@@ -77,6 +77,7 @@ export const api = {
   state: () => req("GET", "/api/state"),
   createItem: (it) => req("POST", "/api/items", it),
   updateItem: (key, it) => req("PUT", `/api/items/${enc(key)}`, it),
+  setSellPrice: (key, sellPrice) => req("PUT", `/api/items/${enc(key)}/sell-price`, { sellPrice }),
   deleteItem: (key) => req("DELETE", `/api/items/${enc(key)}`),
   importItems: (rows) => req("POST", "/api/items/import", { rows }),
   removeDemo: () => req("POST", "/api/items/remove-demo"),

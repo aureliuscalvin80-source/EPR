@@ -361,6 +361,15 @@ test("employees and payroll: one payment per month, run for all, history kept", 
   assert.equal((await call("POST", "/api/payroll/run", { period: "2026-05" }, staff)).status, 403);
 });
 
+test("sell price can be set on its own without touching stock", async () => {
+  await call("POST", "/api/items", { sku: "SP1", tax: "NON", name: "Sell price item", unit: "PCS", qty: 7 });
+  assert.equal((await call("PUT", "/api/items/NON~SP1/sell-price", { sellPrice: -1 })).status, 400);
+  assert.equal((await call("PUT", "/api/items/NON~SP1/sell-price", { sellPrice: 85000 })).status, 200);
+  const it = (await call("GET", "/api/state")).body.items["NON~SP1"];
+  assert.deepEqual([it.sellPrice, it.qty], [85000, 7]);
+  assert.equal((await call("PUT", "/api/items/NON~NOPE/sell-price", { sellPrice: 1 })).status, 404);
+});
+
 test("unknown API routes return JSON 404", async () => {
   assert.equal((await call("GET", "/api/nope")).status, 404);
 });

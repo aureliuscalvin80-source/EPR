@@ -197,6 +197,14 @@ export function createApp({ dataDir, setupCode = makeSetupCode(), secureCookies 
     });
   }));
 
+  // Just the sell price, typed straight into the inventory table. Touches nothing else, so it can't undo a stock change.
+  app.put("/api/items/:key/sell-price", need("staff"), json, write((req) => {
+    const sellPrice = numIn(req.body.sellPrice, "Sell price", { min: 0 });
+    if (!db.prepare("UPDATE items SET sell_price = ?, updated_at = ? WHERE key = ?").run(sellPrice, Date.now(), req.params.key).changes)
+      throw new HttpError(404, "This product no longer exists.");
+    return { sellPrice };
+  }));
+
   app.delete("/api/items/:key", need("admin"), write((req) => {
     if (!db.prepare("DELETE FROM items WHERE key = ?").run(req.params.key).changes) throw new HttpError(404, "This product no longer exists.");
   }));

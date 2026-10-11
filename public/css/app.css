@@ -427,3 +427,9 @@ p.card-pad { border-top: 1px solid var(--line); }
 }
 .muted-row td { color: var(--muted); }
 .note.attn { background: var(--warn-soft); border-color: #f3e2bd; color: var(--fg); line-height: 1.6; }
+/* sell price typed straight into the inventory table */
+.sp-in { width: 120px; text-align: right; padding: 6px 10px; font-variant-numeric: tabular-nums; background: transparent; border-color: transparent; }
+tr:hover .sp-in, .sp-in:focus { background: var(--surface); border-color: var(--line-strong); }
+.sp-in.need { background: var(--warn-soft); border-color: #f3e2bd; }
+.sp-in.need::placeholder { color: var(--warn); }
+.sp-in.saving { opacity: 0.6; }
